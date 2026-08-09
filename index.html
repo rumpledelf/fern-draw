@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Phrond Draw</title>
+    <link rel="stylesheet" href="/styles/palette.css">
+    <link rel="stylesheet" href="/styles/fern-draw.css">
+  </head>
+  <body>
+    <div class="page-shell">
+      <main class="svg-editor" data-svg-editor>
+        <header class="editor-topbar site-header">
+          <div class="brand-lockup">
+            <a class="brand" href="/" aria-label="Phrond Draw home">Phrond Draw</a>
+          </div>
+
+          <div class="topbar-actions">
+            <!-- File Menu -->
+            <div class="site-menu-item has-submenu toolbar-popout">
+              <button class="site-menu-trigger chip-btn" type="button" aria-expanded="false" title="File Menu">
+                File ▾
+              </button>
+
+              <ul class="site-submenu">
+                <li class="site-submenu-option" data-action="new">New</li>
+                <li class="site-submenu-option" data-action="open">Open…</li>
+                <input type="file" accept="image/svg+xml,.svg" data-local-file-input hidden>
+                <li class="site-submenu-option" data-action="reload">Revert</li>
+                <li class="site-submenu-divider"></li>
+                <li class="site-submenu-option" data-action="save">Save to Computer</li>
+              </ul>
+            </div>
+
+            <!-- Edit Menu -->
+            <div class="site-menu-item has-submenu toolbar-popout">
+              <button class="site-menu-trigger chip-btn" type="button" aria-expanded="false">Edit</button>
+              <ul class="site-submenu">
+                <li class="site-submenu-option" data-action="fern_undo">Undo</li>
+                <li class="site-submenu-option" data-action="fern_redo">Redo</li>
+                <li class="site-submenu-divider" role="separator"></li>
+                <li class="site-submenu-option" data-action="duplicate">Duplicate selection</li>
+                <li class="site-submenu-option" data-action="delete">Delete selection</li>
+              </ul>
+            </div>
+
+            <!-- Help Menu -->
+            <div class="site-menu-item has-submenu toolbar-popout">
+              <button class="site-menu-trigger chip-btn" type="button" aria-expanded="false">Help</button>
+              <ul class="site-submenu">
+                <li class="site-submenu-option" data-action="show-shortcuts">Keyboard shortcuts</li>
+                <li class="site-submenu-option" data-action="show-about">About Phrond Draw</li>
+              </ul>
+            </div>
+
+            <!-- View Menu -->
+            <div class="site-menu-item has-submenu toolbar-popout">
+              <button class="site-menu-trigger chip-btn" type="button" aria-expanded="false" title="View Options">
+                View ▾
+              </button>
+              <ul class="site-submenu">
+                <li class="site-submenu-option checkbox-option">
+                  <label>
+                    <input type="radio" name="canvas-bg-choice" data-canvas-bg="dark" checked>
+                    <span>Dark Canvas</span>
+                  </label>
+                </li>
+                <li class="site-submenu-option checkbox-option">
+                  <label>
+                    <input type="radio" name="canvas-bg-choice" data-canvas-bg="light">
+                    <span>Light Canvas</span>
+                  </label>
+                </li>
+                <li class="site-submenu-option checkbox-option">
+                  <label>
+                    <input type="radio" name="canvas-bg-choice" data-canvas-bg="checkerboard">
+                    <span>Grid Canvas</span>
+                  </label>
+                </li>
+              </ul>
+            </div>
+
+            <span class="toolbar-separator"></span>
+
+            <!-- History Actions -->
+            <button class="chip-btn chip-btn-icon" type="button" data-action="fern_undo" title="Undo (Ctrl+Z)" disabled>↶</button>
+            <button class="chip-btn chip-btn-icon" type="button" data-action="fern_redo" title="Redo (Ctrl+Y)" disabled>↷</button>
+
+            <span class="toolbar-separator"></span>
+
+            <!-- Zoom Controls -->
+            <button class="chip-btn chip-btn-icon" type="button" data-action="zoom-out" title="Zoom Out">−</button>
+            <button class="chip-btn" type="button" data-action="zoom-fit" title="Fit to Drawing">Fit</button>
+            <button class="chip-btn chip-btn-icon" type="button" data-action="zoom-in" title="Zoom In">+</button>
+
+            <span class="toolbar-separator"></span>
+
+            <!-- File badge -->
+            <strong class="file-name-pill" data-current-file title="Current File">untitled.svg</strong>
+          </div>
+
+          <div class="topbar-right">
+            <button class="chip-btn" type="button" data-action="toggle-inspector" title="Toggle Inspector Panel (Ctrl+I)">
+              Panel ◧
+            </button>
+            <button class="chip-btn chip-btn-primary" type="button" data-action="save" title="Save to computer">Save</button>
+          </div>
+        </header>
+
+        <section class="site-toolbar-row" aria-label="Drawing toolbar">
+          <div class="site-toolbar-band">
+            <div class="site-toolbar">
+              <div class="toolbar-group">
+                <span class="field-label">Shapes</span>
+                <div class="chip-row">
+                  <button class="chip-btn" type="button" data-add="path" title="Draw Path">Path</button>
+                  <button class="chip-btn" type="button" data-add="rect" title="Add Rectangle">Rect</button>
+                  <button class="chip-btn" type="button" data-add="circle" title="Add Circle">Circle</button>
+                  <button class="chip-btn" type="button" data-add="ellipse" title="Add Ellipse">Ellipse</button>
+                  <button class="chip-btn" type="button" data-add="line" title="Add Line">Line</button>
+                  <button class="chip-btn" type="button" data-add="polygon" title="Add Polygon">Polygon</button>
+                </div>
+              </div>
+              <div class="toolbar-group">
+                <span class="field-label">Align</span>
+                <div class="chip-row">
+                  <button class="chip-btn chip-btn-icon" type="button" data-align="left" title="Align Left">⇤</button>
+                  <button class="chip-btn chip-btn-icon" type="button" data-align="center-x" title="Center Horizontal">⇹</button>
+                  <button class="chip-btn chip-btn-icon" type="button" data-align="right" title="Align Right">⇥</button>
+                  <button class="chip-btn chip-btn-icon" type="button" data-align="top" title="Align Top">⤓</button>
+                  <button class="chip-btn chip-btn-icon" type="button" data-align="center-y" title="Center Vertical">⇯</button>
+                  <button class="chip-btn chip-btn-icon" type="button" data-align="bottom" title="Align Bottom">⤒</button>
+                </div>
+              </div>
+              <div class="toolbar-group toolbar-group-compact">
+                <span class="field-label">Radial Copy</span>
+                <div class="svg-editor-duplicate">
+                  <input data-duplicate-count class="select-pill" type="number" value="6" min="2" max="64" step="1">
+                  <button class="chip-btn" type="button" data-action="duplicate-radial" title="Radial copy">Copy</button>
+                </div>
+              </div>
+              <div class="toolbar-group">
+                <span class="field-label">Nodes</span>
+                <div class="chip-row">
+                  <button class="chip-btn" type="button" data-node-action="corner" title="Set Node to Corner">Corner</button>
+                  <button class="chip-btn" type="button" data-node-action="smooth" title="Set Node to Smooth">Smooth</button>
+                  <button class="chip-btn" type="button" data-node-action="straight" title="Set Segment Straight">Straight</button>
+                  <button class="chip-btn" type="button" data-node-action="curve" title="Set Segment Curve">Curve</button>
+                  <button class="chip-btn" type="button" data-node-action="add" title="Add Node to Path">Add</button>
+                  <button class="chip-btn" type="button" data-node-action="merge" title="Merge Nodes">Merge</button>
+                  <button class="chip-btn" type="button" data-node-action="delete" title="Delete Selected Nodes">Delete</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="svg-editor-layout">
+          <div class="svg-editor-stage">
+            <div class="svg-editor-canvas is-bg-dark" data-svg-canvas></div>
+          </div>
+          <aside class="svg-editor-panel" aria-label="Shape inspector">
+            <div class="panel-section">
+              <div class="svg-editor-fields" data-inspector>
+                <p class="svg-editor-empty">Select a shape to inspect.</p>
+              </div>
+            </div>
+
+          </aside>
+        </section>
+
+        <footer class="editor-statusbar">
+          <span class="svg-editor-status" data-editor-status aria-live="polite">Ready.</span>
+          <div class="svg-editor-coordinate" data-coordinate-readout>--,--</div>
+        </footer>
+      </main>
+    </div>
+    <script src="/static/fern-draw.js" defer></script>
+  </body>
+</html>

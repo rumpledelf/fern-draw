@@ -58,6 +58,14 @@ class FernDrawApplicationTests(unittest.TestCase):
         self.assertIn(b"fern_openSvg", fern_body)
         self.assertNotIn(b"/api/drawing", fern_body)
 
+    def test_material_icon_font_is_served(self) -> None:
+        fern_status, fern_headers, fern_body = fern_request(
+            "/styles/MaterialIcons-Regular.woff2"
+        )
+        self.assertEqual(fern_status, "200 OK")
+        self.assertIn("font/woff2", fern_headers["Content-Type"])
+        self.assertGreater(len(fern_body), 1_000)
+
     def test_non_get_requests_are_rejected(self) -> None:
         fern_status, _, _ = fern_request("/", "POST")
         self.assertEqual(fern_status, "405 Method Not Allowed")

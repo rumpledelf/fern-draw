@@ -1,4 +1,4 @@
-@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Playfair+Display:ital,wght@1,600&family=Uncial+Antiqua&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&family=Inter:wght@400;500;600;700&family=Uncial+Antiqua&display=swap");
 
 @font-face {
   font-family: "Material Icons";
@@ -593,11 +593,11 @@ input[type="range"] {
 
 .editor-topbar .brand-product-name {
   color: var(--color-green-main);
-  font-family: "Playfair Display", Georgia, serif;
+  font-family: "Cinzel", Georgia, serif;
   font-size: 1.2rem;
   font-weight: 600;
-  font-style: italic;
-  letter-spacing: 0;
+  font-style: normal;
+  letter-spacing: 0.08em;
   line-height: 1;
 }
 

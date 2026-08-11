@@ -15,10 +15,10 @@
   /* === Fern Draw UI Tokens (Mapped directly to fern-landing) === */
   --fern-bg: #040805;
   --fern-header: #0b140d;
-  --fern-toolbar: #0b140d;
+  --fern-toolbar: #1f2320; /* Same as panel, slightly darker than #272C28 */
   --fern-menu: #0b140d;
   --fern-stage: #040805;
-  --fern-panel: #272C28;
+  --fern-panel: #1f2320;   /* Shared panel background, slightly darker than #272C28 */
   --fern-surface: #272C28;
   --fern-surface-soft: rgba(255, 255, 255, 0.06);
   --fern-surface-muted: #272C28;
@@ -34,19 +34,28 @@
   --fern-text-soft: #87978A;
   --fern-text-on-light: #0b140d;
 
-  /* === Draw Highlight Accent: Blueprint Blue === */
-  --fern-accent: #38bdf8;
-  --fern-accent-soft: #7dd3fc;
-  --fern-accent-pale: #e0f2fe;
-  --fern-accent-deep: #0284c7;
-  --fern-selected: rgba(56, 189, 248, 0.16);
+  /* === Control & Button Tokens (Themeable for light/dark modes) === */
+  --fern-control-bg: #2b302c;
+  --fern-control-bg-hover: #333934;
+  --fern-control-bg-active: #3b423d;
+  --fern-control-border: rgba(121, 113, 95, 0.45);
+  --fern-control-border-hover: rgba(121, 113, 95, 0.75);
+  --fern-control-border-active: rgba(121, 113, 95, 0.85);
+  --fern-divider-border: rgba(121, 113, 95, 0.25);
+
+  /* === Draw Highlight Accent: Slate Blueprint Blue (#223B59) === */
+  --fern-accent: #223B59;
+  --fern-accent-soft: #5A7EA8;
+  --fern-accent-pale: #8BA9CE;
+  --fern-accent-deep: #16263B;
+  --fern-selected: rgba(34, 59, 89, 0.45);
 
   --color-red-main: #a03845;
   --color-red-dark: #6b0e19;
   --fern-danger: #a03845;
   --fern-danger-deep: #6b0e19;
-  --fern-primary: #0284c7;
-  --fern-primary-border: #38bdf8;
+  --fern-primary: #223B59;
+  --fern-primary-border: #5A7EA8;
   --fern-text-inverse: #ffffff;
   --fern-shadow: rgba(0, 0, 0, 0.5);
   --fern-overlay: rgba(4, 8, 5, 0.75);

@@ -3,6 +3,44 @@ const fernEditor = document.querySelector("[data-svg-editor]");
 const FERN_SVG_NS = "http://www.w3.org/2000/svg";
 const FERN_EMPTY_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"></svg>';
 const FERN_MAX_LOCAL_FILE_BYTES = 10 * 1024 * 1024;
+const FERN_AUTOSAVE_KEY = "fern_draw_autosave_v1";
+
+function fern_autoSaveLocal() {
+  if (!fernActiveSvg) {
+    return;
+  }
+  try {
+    const content = fern_cleanForSave();
+    const payload = {
+      content,
+      fileName: fernCurrentFileName,
+      timestamp: Date.now(),
+    };
+    localStorage.setItem(FERN_AUTOSAVE_KEY, JSON.stringify(payload));
+  } catch (_e) {}
+}
+
+function fern_clearAutoSaveLocal() {
+  try {
+    localStorage.removeItem(FERN_AUTOSAVE_KEY);
+  } catch (_e) {}
+}
+
+function fern_loadAutoSavedDraft() {
+  try {
+    const raw = localStorage.getItem(FERN_AUTOSAVE_KEY);
+    if (!raw) {
+      return false;
+    }
+    const payload = JSON.parse(raw);
+    if (payload && payload.content && payload.content.trim().length > 0) {
+      fern_loadLocalSvg(payload.content, payload.fileName || "untitled.svg");
+      fern_setEditorStatus(`Restored draft: ${payload.fileName || "untitled.svg"}`);
+      return true;
+    }
+  } catch (_e) {}
+  return false;
+}
 const FERN_COMMON_ATTRS = ["stroke", "stroke-width", "fill", "opacity"];
 const FERN_SHAPE_ATTRS = {
   path: [],
@@ -34,6 +72,61 @@ let fernZoomCenter = null;
 let fernPanState = null;
 let fernSpacePressed = false;
 let fernAddNodeMode = false;
+let fernDrawPathMode = false;
+let fernPathBuildingPoints = [];
+let fernDrawingPathElement = null;
+
+function fern_activateDrawPathMode() {
+  fernDrawPathMode = true;
+  fernPathBuildingPoints = [];
+  fernDrawingPathElement = null;
+  if (fernActiveSvg) {
+    fernActiveSvg.classList.add("is-drawing-path");
+  }
+  fern_setEditorStatus("Click canvas to place path points. Double-click to close path.");
+}
+
+function fern_updateDrawingPath(currentPointer = null) {
+  if (!fernDrawingPathElement || fernPathBuildingPoints.length === 0) {
+    return;
+  }
+  let d = `M ${fernPathBuildingPoints[0].x} ${fernPathBuildingPoints[0].y}`;
+  for (let i = 1; i < fernPathBuildingPoints.length; i += 1) {
+    d += ` L ${fernPathBuildingPoints[i].x} ${fernPathBuildingPoints[i].y}`;
+  }
+  if (currentPointer) {
+    d += ` L ${fern_snap(currentPointer.x)} ${fern_snap(currentPointer.y)}`;
+  }
+  fernDrawingPathElement.setAttribute("d", d);
+}
+
+function fern_finishDrawPath(closed = true) {
+  if (!fernDrawPathMode) {
+    return;
+  }
+  if (fernDrawingPathElement && fernPathBuildingPoints.length > 1) {
+    let d = `M ${fernPathBuildingPoints[0].x} ${fernPathBuildingPoints[0].y}`;
+    for (let i = 1; i < fernPathBuildingPoints.length; i += 1) {
+      d += ` L ${fernPathBuildingPoints[i].x} ${fernPathBuildingPoints[i].y}`;
+    }
+    if (closed) {
+      d += " Z";
+    }
+    fernDrawingPathElement.setAttribute("d", d);
+    fern_selectElement(fernDrawingPathElement);
+    fern_commitHistory();
+    fern_setEditorStatus(closed ? "Closed path created." : "Open path created.");
+  } else if (fernDrawingPathElement) {
+    fernDrawingPathElement.remove();
+    fern_selectElement(null);
+  }
+  fernDrawPathMode = false;
+  fernPathBuildingPoints = [];
+  fernDrawingPathElement = null;
+  if (fernActiveSvg) {
+    fernActiveSvg.classList.remove("is-drawing-path");
+  }
+}
 
 function fern_snap(value) {
   return Math.round(value);
@@ -88,14 +181,25 @@ function fern_captureEditorState() {
 }
 
 function fern_updateHistoryControls() {
-  const undoButton = fernEditor.querySelector('[data-action="fern_undo"]');
-  const redoButton = fernEditor.querySelector('[data-action="fern_redo"]');
-  if (undoButton) {
-    undoButton.disabled = fernUndoStack.length === 0;
-  }
-  if (redoButton) {
-    redoButton.disabled = fernRedoStack.length === 0;
-  }
+  const undoElements = fernEditor.querySelectorAll('[data-action="fern_undo"]');
+  const redoElements = fernEditor.querySelectorAll('[data-action="fern_redo"]');
+
+  const canUndo = fernUndoStack.length > 0;
+  const canRedo = fernRedoStack.length > 0;
+
+  undoElements.forEach((element) => {
+    if ("disabled" in element) {
+      element.disabled = !canUndo;
+    }
+    element.classList.toggle("is-disabled", !canUndo);
+  });
+
+  redoElements.forEach((element) => {
+    if ("disabled" in element) {
+      element.disabled = !canRedo;
+    }
+    element.classList.toggle("is-disabled", !canRedo);
+  });
 }
 
 function fern_beginHistory() {
@@ -119,6 +223,7 @@ function fern_commitHistory() {
   }
   fernPendingHistoryState = null;
   fern_updateHistoryControls();
+  fern_autoSaveLocal();
 }
 
 function fern_restoreEditorState(state) {
@@ -257,8 +362,17 @@ function fern_selectableTarget(target) {
     return null;
   }
 
+  const group = target.closest("g");
+  if (group && group !== fernActiveSvg && !group.closest("[data-editor-handles]") && !group.closest("[data-editor-grid]")) {
+    if (fernSelectedElement === group) {
+      const tag = fern_getTagName(target);
+      return (FERN_SHAPE_ATTRS[tag] || tag === "circle") ? target : group;
+    }
+    return group;
+  }
+
   const tag = fern_getTagName(target);
-  return FERN_SHAPE_ATTRS[tag] || tag === "circle" ? target : null;
+  return (FERN_SHAPE_ATTRS[tag] || tag === "circle" || tag === "g") ? target : null;
 }
 
 function fern_clearHandles() {
@@ -510,6 +624,12 @@ function fern_renderInspector() {
   const strokeIsNone = strokeVal === "none" || strokeVal === "";
   const strokeHex = fern_colorToHex(strokeVal, "#ffffff");
 
+  const fillOpacityVal = fernSelectedElement.getAttribute("fill-opacity");
+  const fillOpacityPercent = Math.round(Number.parseFloat(fillOpacityVal || "1") * 100);
+
+  const strokeOpacityVal = fernSelectedElement.getAttribute("stroke-opacity");
+  const strokeOpacityPercent = Math.round(Number.parseFloat(strokeOpacityVal || "1") * 100);
+
   const strokeWidth = fernSelectedElement.getAttribute("stroke-width") || "1";
   const opacity = fernSelectedElement.getAttribute("opacity") || "1";
   const linecap = fernSelectedElement.getAttribute("stroke-linecap") || "butt";
@@ -546,8 +666,11 @@ function fern_renderInspector() {
       <label><span>Y2</span><input class="select-pill" type="number" data-attr="y2" value="${fernSelectedElement.getAttribute("y2") || "0"}"></label>
     `;
   } else if (tag === "polygon" || tag === "polyline") {
+    const rawPoints = fernSelectedElement.getAttribute("points") || "";
+    const pointCount = Math.floor(rawPoints.trim().split(/\s+|,/).map(Number).filter(Number.isFinite).length / 2);
     geomFields = `
-      <label style="grid-column: 1 / -1;"><span>Points</span><input class="select-pill" type="text" data-attr="points" value="${fernSelectedElement.getAttribute("points") || ""}"></label>
+      <label><span>Sides / Vertices</span><input class="select-pill" type="number" min="3" max="32" data-polygon-sides value="${pointCount || 3}"></label>
+      <label style="grid-column: 1 / -1;"><span>Points</span><input class="select-pill" type="text" data-attr="points" value="${rawPoints}"></label>
     `;
   }
 
@@ -581,6 +704,11 @@ function fern_renderInspector() {
             <span>None</span>
           </label>
         </div>
+        <div class="opacity-slider-wrapper">
+          <span class="slider-label">Alpha</span>
+          <input type="range" min="0" max="100" step="1" data-attr-opacity="fill" value="${fillOpacityPercent}" ${fillIsNone ? 'disabled' : ''}>
+          <span class="slider-value" data-opacity-readout="fill">${fillOpacityPercent}%</span>
+        </div>
       </div>
       <div class="color-picker-group">
         <span class="subgroup-title">Stroke</span>
@@ -590,6 +718,11 @@ function fern_renderInspector() {
             <input type="checkbox" data-attr-none="stroke" ${strokeIsNone ? 'checked' : ''}>
             <span>None</span>
           </label>
+        </div>
+        <div class="opacity-slider-wrapper">
+          <span class="slider-label">Alpha</span>
+          <input type="range" min="0" max="100" step="1" data-attr-opacity="stroke" value="${strokeOpacityPercent}" ${strokeIsNone ? 'disabled' : ''}>
+          <span class="slider-value" data-opacity-readout="stroke">${strokeOpacityPercent}%</span>
         </div>
       </div>
     </div>
@@ -629,7 +762,52 @@ function fern_renderInspector() {
   `;
 }
 
+function fern_generatePolygonPoints(sides, cx = 50, cy = 50, r = 28) {
+  const points = [];
+  for (let i = 0; i < sides; i += 1) {
+    const angle = (2 * Math.PI * i) / sides - Math.PI / 2;
+    const x = fern_snap(cx + r * Math.cos(angle));
+    const y = fern_snap(cy + r * Math.sin(angle));
+    points.push(`${x},${y}`);
+  }
+  return points.join(" ");
+}
+
+function fern_getPolygonCenterRadius(element) {
+  const rawPoints = element.getAttribute("points") || "";
+  const numbers = rawPoints.trim().split(/\s+|,/).map(Number).filter(Number.isFinite);
+  if (numbers.length < 4) {
+    return { cx: 50, cy: 50, r: 28 };
+  }
+  let minX = numbers[0];
+  let maxX = numbers[0];
+  let minY = numbers[1];
+  let maxY = numbers[1];
+  for (let i = 0; i < numbers.length; i += 2) {
+    minX = Math.min(minX, numbers[i]);
+    maxX = Math.max(maxX, numbers[i]);
+    minY = Math.min(minY, numbers[i + 1]);
+    maxY = Math.max(maxY, numbers[i + 1]);
+  }
+  const cx = fern_snap((minX + maxX) / 2);
+  const cy = fern_snap((minY + maxY) / 2);
+  const r = fern_snap(Math.max((maxX - minX) / 2, (maxY - minY) / 2, 10));
+  return { cx, cy, r };
+}
+
 function fern_updateSelectedAttr(event) {
+  const sidesInput = event.target.closest("[data-polygon-sides]");
+  if (sidesInput && fernSelectedElement) {
+    const sides = Math.max(3, Math.min(32, Number.parseInt(sidesInput.value, 10) || 3));
+    const { cx, cy, r } = fern_getPolygonCenterRadius(fernSelectedElement);
+    fern_beginHistory();
+    fernSelectedElement.setAttribute("points", fern_generatePolygonPoints(sides, cx, cy, r));
+    fern_renderInspector();
+    fern_renderPointHandles();
+    fern_commitHistory();
+    return;
+  }
+
   const input = event.target.closest("[data-attr]");
   if (!input || !fernSelectedElement) {
     return;
@@ -676,6 +854,27 @@ function fern_updateDocumentAttr(event) {
 function fern_updateColorAttr(event) {
   const colorInput = event.target.closest("[data-attr-color]");
   const noneInput = event.target.closest("[data-attr-none]");
+  const opacityInput = event.target.closest("[data-attr-opacity]");
+
+  if (opacityInput && fernSelectedElement) {
+    const targetAttr = opacityInput.dataset.attrOpacity;
+    const opacityAttr = `${targetAttr}-opacity`;
+    const percent = Math.max(0, Math.min(100, Number.parseInt(opacityInput.value, 10) || 0));
+    const floatVal = fern_formatNumber(percent / 100);
+
+    fern_beginHistory();
+    if (percent === 100) {
+      fernSelectedElement.removeAttribute(opacityAttr);
+    } else {
+      fernSelectedElement.setAttribute(opacityAttr, floatVal);
+    }
+    const readout = fernEditor.querySelector(`[data-opacity-readout="${targetAttr}"]`);
+    if (readout) {
+      readout.textContent = `${percent}%`;
+    }
+    fern_commitHistory();
+    return;
+  }
 
   if (colorInput && fernSelectedElement) {
     const attr = colorInput.dataset.attrColor;
@@ -1083,6 +1282,42 @@ function fern_getPointRefs(element) {
       { type: "rect-corner", corner: "br", x: x + width, y: y + height, base: { x, y, width, height } },
       { type: "rect-corner", corner: "bl", x, y: y + height, base: { x, y, width, height } },
     ];
+  }
+  if (tag === "polygon" || tag === "polyline") {
+    const rawPoints = element.getAttribute("points") || "";
+    const numbers = rawPoints.trim().split(/\s+|,/).map(Number).filter(Number.isFinite);
+    const refs = [];
+    for (let i = 0; i < numbers.length; i += 2) {
+      if (i + 1 < numbers.length) {
+        refs.push({
+          type: "points-pair",
+          pointIndex: i / 2,
+          x: numbers[i],
+          y: numbers[i + 1],
+          numbers,
+        });
+      }
+    }
+    return refs;
+  }
+  if (tag === "g") {
+    try {
+      const box = element.getBBox();
+      if (box && Number.isFinite(box.x) && Number.isFinite(box.y)) {
+        const x = fern_snap(box.x);
+        const y = fern_snap(box.y);
+        const width = fern_snap(box.width);
+        const height = fern_snap(box.height);
+        return [
+          { type: "group-bounds", corner: "tl", x, y },
+          { type: "group-bounds", corner: "tr", x: x + width, y },
+          { type: "group-bounds", corner: "br", x: x + width, y: y + height },
+          { type: "group-bounds", corner: "bl", x, y: y + height },
+        ];
+      }
+    } catch (_e) {
+      return [];
+    }
   }
   if (tag === "path") {
     return fern_getPathPointRefs(element);
@@ -1508,6 +1743,50 @@ function fern_deleteSelectedNodes() {
   fern_renderPointHandles();
 }
 
+function fern_convertAdjacentSegmentsToCurves(element, anchor) {
+  const refs = fern_getPointRefs(element);
+  const anchors = refs.filter(fern_refHasPosition);
+  const index = anchors.indexOf(anchor);
+  if (index < 0) {
+    return;
+  }
+
+  const adjacentIndices = [];
+  if (index > 0) adjacentIndices.push(index - 1);
+  else if (anchor.closingTo) adjacentIndices.push(anchors.length - 1);
+  if (index < anchors.length - 1) adjacentIndices.push(index + 1);
+  else if (anchors[0] && anchors[0].incomingSegment === "Z") adjacentIndices.push(0);
+
+  const tokens = fern_pathTokens(element.getAttribute("d") || "");
+  let modified = false;
+
+  for (const adjIndex of adjacentIndices) {
+    const start = index < adjIndex ? anchor : anchors[adjIndex];
+    const end = index < adjIndex ? anchors[adjIndex] : anchor;
+    if (end && Number.isInteger(end.segmentStart) && Number.isInteger(end.segmentEnd)) {
+      const segTokens = end.tokens.slice(end.segmentStart, end.segmentEnd);
+      const cmd = segTokens[0] && segTokens[0].type === "command" ? segTokens[0].value.toUpperCase() : "";
+      if (cmd === "L" || cmd === "Z" || cmd === "H" || cmd === "V") {
+        const replacement = fern_pathCommand(
+          "C",
+          fern_snap(start.x + (end.x - start.x) / 3),
+          fern_snap(start.y + (end.y - start.y) / 3),
+          fern_snap(start.x + ((end.x - start.x) * 2) / 3),
+          fern_snap(start.y + ((end.y - start.y) * 2) / 3),
+          end.x,
+          end.y
+        );
+        tokens.splice(end.segmentStart, end.segmentEnd - end.segmentStart, ...replacement);
+        modified = true;
+      }
+    }
+  }
+
+  if (modified) {
+    element.setAttribute("d", fern_serializePathTokens(tokens));
+  }
+}
+
 function fern_setNodeMode(mode) {
   const selectedRefs = fern_selectedAnchorRefs();
   if (!fernSelectedElement || selectedRefs.length === 0) {
@@ -1516,16 +1795,21 @@ function fern_setNodeMode(mode) {
   }
 
   for (const anchor of selectedRefs) {
+    if (mode === "smooth") {
+      fern_convertAdjacentSegmentsToCurves(fernSelectedElement, anchor);
+    }
     fern_setNodeModeOverride(fernSelectedElement, anchor, mode);
-    const [first, second] = anchor.controls || [];
+    const updatedRefs = fern_getPointRefs(fernSelectedElement);
+    const updatedAnchor = updatedRefs.find((r) => r.x === anchor.x && r.y === anchor.y) || anchor;
+    const [first, second] = updatedAnchor.controls || [];
     if (mode === "smooth" && first && second) {
-      const length = Math.hypot(first.x - anchor.x, first.y - anchor.y) || Math.hypot(second.x - anchor.x, second.y - anchor.y) || 8;
-      const angle = Math.atan2(second.y - anchor.y, second.x - anchor.x) + Math.PI;
-      fern_setAbsolutePathPair(first, fern_snap(anchor.x + Math.cos(angle) * length), fern_snap(anchor.y + Math.sin(angle) * length));
+      const length = Math.hypot(first.x - updatedAnchor.x, first.y - updatedAnchor.y) || Math.hypot(second.x - updatedAnchor.x, second.y - updatedAnchor.y) || 8;
+      const angle = Math.atan2(second.y - updatedAnchor.y, second.x - updatedAnchor.x) + Math.PI;
+      fern_setAbsolutePathPair(first, fern_snap(updatedAnchor.x + Math.cos(angle) * length), fern_snap(updatedAnchor.y + Math.sin(angle) * length));
+      fernSelectedElement.setAttribute("d", fern_serializePathTokens(first.tokens));
     }
   }
 
-  fernSelectedElement.setAttribute("d", fern_serializePathTokens(selectedRefs[0].tokens));
   fern_setEditorStatus(mode === "corner" ? "Node made corner." : "Node made smooth.");
   fern_renderPointHandles();
 }
@@ -1593,6 +1877,19 @@ function fern_applyPointRef(element, ref, x, y) {
     ref.tokens[ref.yRef.tokenIndex].value = ref.relative ? y - fernPointDragState.startCurrentY : y;
     fern_moveAttachedControls(x, y);
     element.setAttribute("d", fern_serializePathTokens(ref.tokens));
+  } else if (ref.type === "points-pair") {
+    const rawPoints = element.getAttribute("points") || "";
+    const numbers = rawPoints.trim().split(/\s+|,/).map(Number).filter(Number.isFinite);
+    const index = ref.pointIndex * 2;
+    if (index + 1 < numbers.length) {
+      numbers[index] = x;
+      numbers[index + 1] = y;
+      const formatted = [];
+      for (let i = 0; i < numbers.length; i += 2) {
+        formatted.push(`${fern_formatNumber(numbers[i])},${fern_formatNumber(numbers[i + 1])}`);
+      }
+      element.setAttribute("points", formatted.join(" "));
+    }
   }
 }
 
@@ -1837,6 +2134,37 @@ function fern_duplicateSelectedRadially() {
 function fern_handlePointerDown(event) {
   const handle = event.target.closest("[data-point-index]");
   const target = fern_selectableTarget(event.target);
+
+  if (fernDrawPathMode) {
+    event.preventDefault();
+    const point = fern_getCanvasPoint(event);
+    const snapX = fern_snap(point.x);
+    const snapY = fern_snap(point.y);
+
+    if (fernPathBuildingPoints.length === 0) {
+      fern_beginHistory();
+      const element = document.createElementNS(FERN_SVG_NS, "path");
+      element.setAttribute("stroke", "#fff");
+      element.setAttribute("stroke-width", "1");
+      element.setAttribute("fill", "none");
+      element.setAttribute("stroke-linejoin", "round");
+      element.setAttribute("stroke-linecap", "round");
+      element.setAttribute("d", `M ${snapX} ${snapY}`);
+      fernActiveSvg.append(element);
+      fernDrawingPathElement = element;
+      fernPathBuildingPoints.push({ x: snapX, y: snapY });
+      fern_selectElement(element);
+      fern_setEditorStatus("Click next point. Double-click to close path.");
+    } else {
+      const last = fernPathBuildingPoints[fernPathBuildingPoints.length - 1];
+      if (last.x !== snapX || last.y !== snapY) {
+        fernPathBuildingPoints.push({ x: snapX, y: snapY });
+        fern_updateDrawingPath(point);
+      }
+    }
+    return;
+  }
+
   if (fernAddNodeMode) {
     let path = target && (fern_getTagName(target) === "path" || fern_getTagName(target) === "line")
       ? target
@@ -1944,6 +2272,13 @@ function fern_handlePointerDown(event) {
 }
 
 function fern_handlePointerMove(event) {
+  if (fernDrawPathMode && fernDrawingPathElement && fernPathBuildingPoints.length > 0) {
+    const point = fern_getCanvasPoint(event);
+    fern_updateDrawingPath(point);
+    fern_setCoordinateReadout(point.x, point.y);
+    return;
+  }
+
   if (fernPanState) {
     const point = fern_getCanvasPoint(event);
     fernZoomCenter = {
@@ -2097,6 +2432,7 @@ function fern_loadLocalSvg(fernContent, fernName, fernHandle = null) {
   fernUndoStack = [];
   fernRedoStack = [];
   fern_updateHistoryControls();
+  fern_autoSaveLocal();
   fern_setEditorStatus(fernCurrentFileName);
 }
 
@@ -2104,6 +2440,7 @@ function fern_newSvg() {
   if (!fern_confirmDiscardChanges()) {
     return;
   }
+  fern_clearAutoSaveLocal();
   fern_loadLocalSvg(FERN_EMPTY_SVG, "untitled.svg");
   fern_setEditorStatus("New drawing.");
 }
@@ -2251,6 +2588,11 @@ function fern_addShape(type) {
     return;
   }
 
+  if (type === "path") {
+    fern_activateDrawPathMode();
+    return;
+  }
+
   fern_beginHistory();
   const element = document.createElementNS(FERN_SVG_NS, type);
   element.setAttribute("stroke", "#fff");
@@ -2279,9 +2621,6 @@ function fern_addShape(type) {
     element.setAttribute("stroke-linecap", "round");
   } else if (type === "polygon") {
     element.setAttribute("points", "50,20 78,75 22,75");
-    element.setAttribute("stroke-linejoin", "round");
-  } else {
-    element.setAttribute("d", "M25 50 C35 28 65 28 75 50 C65 72 35 72 25 50Z");
     element.setAttribute("stroke-linejoin", "round");
   }
 
@@ -2338,6 +2677,14 @@ async function fern_setupEditor() {
     }
   });
 
+  fernEditor.addEventListener("dblclick", (event) => {
+    if (fernDrawPathMode) {
+      event.preventDefault();
+      event.stopPropagation();
+      fern_finishDrawPath(true);
+    }
+  });
+
   document.addEventListener("change", (event) => {
     const radio = event.target.closest('[data-canvas-bg]');
     if (radio) {
@@ -2350,6 +2697,12 @@ async function fern_setupEditor() {
     const target = event.target;
     const isTextInput = target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT");
     if (isTextInput) {
+      return;
+    }
+
+    if (fernDrawPathMode && (event.key === "Escape" || event.key === "Enter")) {
+      event.preventDefault();
+      fern_finishDrawPath(event.key === "Enter");
       return;
     }
 
@@ -2411,10 +2764,13 @@ async function fern_setupEditor() {
     }
   });
 
-  window.addEventListener("beforeunload", (fernEvent) => {
-    if (fern_hasUnsavedChanges()) {
-      fernEvent.preventDefault();
-      fernEvent.returnValue = "";
+  window.addEventListener("beforeunload", () => {
+    fern_autoSaveLocal();
+  });
+
+  document.addEventListener("click", (event) => {
+    if (!event.target.closest(".site-menu-item")) {
+      fern_closeAllMenus();
     }
   });
 
@@ -2534,8 +2890,10 @@ async function fern_setupEditor() {
     }
   });
 
-  fern_loadLocalSvg(FERN_EMPTY_SVG, "untitled.svg");
-  fern_setEditorStatus("New drawing.");
+  if (!fern_loadAutoSavedDraft()) {
+    fern_loadLocalSvg(FERN_EMPTY_SVG, "untitled.svg");
+    fern_setEditorStatus("New drawing.");
+  }
 }
 
 fern_setupEditor().catch((fernError) => fern_setEditorStatus(fernError.message));

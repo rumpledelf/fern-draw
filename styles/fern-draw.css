@@ -518,11 +518,6 @@ input[type="range"] {
   gap: 1rem;
 }
 
-.svg-editor {
-  display: grid;
-  gap: 1rem;
-}
-
 .page-shell {
   width: 100%;
   max-width: none;
@@ -536,6 +531,7 @@ input[type="range"] {
 .svg-editor {
   display: flex;
   flex-direction: column;
+  gap: 0;
   flex: 1;
   min-height: 0;
   border: 0;
@@ -566,7 +562,7 @@ input[type="range"] {
   width: 340px;
   min-height: 48px;
   padding: 0 0.75rem;
-  border-right: 1px solid var(--fern-border);
+  border-right: 1px solid var(--fern-divider-border);
   font-family: "Inter", "Segoe UI", sans-serif;
   font-size: 1.1rem;
   font-weight: 600;
@@ -592,7 +588,7 @@ input[type="range"] {
 }
 
 .editor-topbar .brand-product-name {
-  color: var(--color-green-main);
+  color: var(--fern-accent-soft);
   font-family: "Cinzel", Georgia, serif;
   font-size: 1.2rem;
   font-weight: 600;
@@ -607,8 +603,7 @@ input[type="range"] {
   gap: 0.35rem;
   flex: 1;
   padding: 0 1.25rem;
-  overflow-x: auto;
-  scrollbar-width: none;
+  overflow: visible;
 }
 
 .editor-menu-list {
@@ -635,7 +630,7 @@ input[type="range"] {
 
 .site-toolbar-row {
   flex: 0 0 auto;
-  border-bottom: 1px solid var(--fern-border);
+  border-bottom: 1px solid var(--fern-divider-border);
   background: var(--fern-toolbar);
   position: relative;
   z-index: 190;
@@ -661,7 +656,7 @@ input[type="range"] {
   align-items: end;
   gap: 0.25rem;
   padding-right: 0.75rem;
-  border-right: 1px solid var(--fern-border);
+  border-right: 1px solid var(--fern-divider-border);
 }
 
 .toolbar-group:last-child {
@@ -709,15 +704,15 @@ input[type="range"] {
 .toolbar-separator {
   width: 1px;
   height: 1.25rem;
-  background: var(--fern-border);
+  background: var(--fern-divider-border);
   margin: 0 0.15rem;
 }
 
 .file-name-pill {
   font-size: 0.78rem;
   color: var(--fern-accent-soft);
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid var(--fern-border);
+  background: var(--fern-control-bg);
+  border: 1px solid var(--fern-control-border);
   padding: 0.25rem 0.6rem;
   border-radius: 999px;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
@@ -751,14 +746,14 @@ input[type="range"] {
   position: absolute;
   top: calc(100% + 4px);
   left: 0;
-  min-width: 160px;
+  min-width: 170px;
   padding: 0.35rem;
-  border: 1px solid var(--fern-border-strong);
-  border-radius: 10px;
-  background: var(--fern-menu);
-  box-shadow: 0 14px 28px rgba(0, 0, 0, 0.45);
+  border: 1px solid var(--fern-control-border);
+  border-radius: 8px;
+  background: var(--fern-toolbar);
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
   display: none;
-  z-index: 500;
+  z-index: 1000;
   list-style: none;
   margin: 0;
 }
@@ -781,8 +776,14 @@ input[type="range"] {
 }
 
 .site-submenu-option:hover {
-  background: var(--fern-selected);
-  color: var(--fern-text-inverse);
+  background: var(--fern-control-bg-hover);
+  color: var(--fern-text);
+}
+
+.site-submenu-option.is-disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  pointer-events: none;
 }
 
 .site-submenu-option.checkbox-option label {
@@ -795,7 +796,7 @@ input[type="range"] {
 
 .site-submenu-divider {
   height: 1px;
-  background: var(--fern-border);
+  background: var(--fern-divider-border);
   margin: 0.35rem 0;
 }
 
@@ -827,7 +828,7 @@ input[type="range"] {
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: var(--fern-accent-pale);
+  color: var(--fern-text-muted);
   margin-bottom: 0.25rem;
   display: block;
 }
@@ -840,8 +841,8 @@ input[type="range"] {
 }
 
 .chip-btn {
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid var(--fern-border);
+  background: var(--fern-control-bg);
+  border: 1px solid var(--fern-control-border);
   color: var(--fern-text);
   padding: 0.4rem 0.7rem;
   border-radius: 999px;
@@ -859,27 +860,27 @@ input[type="range"] {
 }
 
 .chip-btn:hover {
-  border-color: #6b7280;
+  border-color: var(--fern-control-border-hover);
   color: var(--fern-text);
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--fern-control-bg-hover);
 }
 
 .chip-btn.is-active,
 .chip-btn:active {
-  background: var(--fern-selected);
-  border-color: #d97706;
-  color: var(--fern-text-inverse);
+  background: var(--fern-control-bg-active);
+  border-color: var(--fern-control-border-active);
+  color: var(--fern-text);
 }
 
 .chip-btn-primary {
-  background: var(--fern-primary);
-  border-color: var(--fern-primary-border);
-  color: var(--fern-text-inverse);
+  background: var(--fern-control-bg-hover);
+  border-color: var(--fern-control-border);
+  color: var(--fern-text);
 }
 
 .chip-btn-primary:hover {
-  background: var(--color-green-main);
-  border-color: var(--color-green-very-light);
+  background: var(--fern-control-bg-active);
+  border-color: var(--fern-control-border-active);
 }
 
 .chip-btn-danger {
@@ -901,8 +902,8 @@ input[type="range"] {
 
 .select-pill {
   width: 100%;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid var(--fern-border);
+  background: var(--fern-control-bg);
+  border: 1px solid var(--fern-control-border);
   color: var(--fern-text);
   padding: 0.4rem 0.65rem;
   border-radius: 999px;
@@ -915,7 +916,61 @@ input[type="range"] {
 
 .select-pill:focus {
   outline: none;
-  border-color: var(--fern-accent-soft);
+  border-color: var(--fern-control-border-active);
+}
+
+.inspector-color-row {
+  display: flex;
+  gap: 0.75rem;
+  margin-top: 0.4rem;
+}
+
+.color-picker-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  flex: 1;
+}
+
+.color-input-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.opacity-slider-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-top: 0.25rem;
+}
+
+.opacity-slider-wrapper .slider-label {
+  font-size: 0.7rem;
+  color: var(--fern-text-muted);
+  min-width: 28px;
+}
+
+.opacity-slider-wrapper input[type="range"] {
+  flex: 1;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--fern-control-border);
+  accent-color: var(--fern-accent-soft);
+  cursor: pointer;
+}
+
+.opacity-slider-wrapper input[type="range"]:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.opacity-slider-wrapper .slider-value {
+  font-size: 0.7rem;
+  color: var(--fern-text-muted);
+  min-width: 32px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 
 .svg-editor-layout {
@@ -982,7 +1037,9 @@ input[type="range"] {
 }
 
 .icon-editor-svg.is-adding-node,
-.icon-editor-svg.is-adding-node > * {
+.icon-editor-svg.is-adding-node > *,
+.icon-editor-svg.is-drawing-path,
+.icon-editor-svg.is-drawing-path > * {
   cursor: crosshair;
 }
 

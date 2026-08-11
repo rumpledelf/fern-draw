@@ -1,60 +1,53 @@
 :root {
-  /* Shared application chrome, matched to Publisher. */
-  --color-green-main: #d97706;
-  --color-green-light: #f59e0b;
-  --color-green-very-light: #fef3c7;
-  --color-green-dark: #b45309;
-  --color-green-very-dark: #78350f;
+  /* === Exact fern-landing Base Colors === */
+  --phrond-sundial-gold: #D8CAAC;
+  --phrond-tile-title: #D8CAAC;
+  --phrond-tile-bg: #272C28;
+  --phrond-tile-border: #79715F;
 
-  --color-teal-main: #2b6c60;
-  --color-teal-light: #9bbfb9;
-  --color-teal-mid: #558f85;
-  --color-teal-dark: #10483d;
-  --color-teal-very-dark: #03251f;
+  --phrond-bg: #040805;
+  --phrond-chassis-bg: #0b140d;
 
-  --color-orange-main: #a8663e;
-  --color-orange-light: #e0a883;
-  --color-orange-very-light: #fee1ce;
-  --color-orange-dark: #703512;
-  --color-orange-very-dark: #391702;
+  --phrond-text-brand: #D8CAAC;
+  --phrond-text-primary: #d4e0d7;
+  --phrond-text-muted: #87978A;
+
+  /* === Fern Draw UI Tokens (Mapped directly to fern-landing) === */
+  --fern-bg: #040805;
+  --fern-header: #0b140d;
+  --fern-toolbar: #0b140d;
+  --fern-menu: #0b140d;
+  --fern-stage: #040805;
+  --fern-panel: #272C28;
+  --fern-surface: #272C28;
+  --fern-surface-soft: rgba(255, 255, 255, 0.06);
+  --fern-surface-muted: #272C28;
+
+  --fern-border: #79715F;
+  --fern-border-strong: #79715F;
+
+  --fern-bg-strong: #272C28;
+  --fern-bg-deep: #0b140d;
+
+  --fern-text: #d4e0d7;
+  --fern-text-muted: #87978A;
+  --fern-text-soft: #87978A;
+  --fern-text-on-light: #0b140d;
+
+  /* === Draw Highlight Accent: Blueprint Blue === */
+  --fern-accent: #38bdf8;
+  --fern-accent-soft: #7dd3fc;
+  --fern-accent-pale: #e0f2fe;
+  --fern-accent-deep: #0284c7;
+  --fern-selected: rgba(56, 189, 248, 0.16);
 
   --color-red-main: #a03845;
-  --color-red-light: #d67d87;
-  --color-red-very-light: #f6c7cd;
   --color-red-dark: #6b0e19;
-  --color-red-very-dark: #370108;
-
-  --fern-bg: #090d16;
-  --fern-header: #1f2937;
-  --fern-toolbar: rgba(17, 24, 39, 0.96);
-  --fern-menu: #172131;
-  --fern-stage: #0f172a;
-  --fern-panel: #111827;
-  --fern-bg-strong: var(--color-green-dark);
-  --fern-bg-deep: var(--color-green-very-dark);
-  --fern-surface: #111827;
-  --fern-surface-soft: rgba(255, 255, 255, 0.06);
-  --fern-surface-muted: #1f2937;
-  --fern-selected: rgba(217, 119, 6, 0.16);
-
-  --fern-text: #f3f4f6;
-  --fern-text-muted: #cbd5e1;
-  --fern-text-soft: #9ca3af;
-  --fern-text-on-light: var(--color-green-very-dark);
-
-  --fern-accent: var(--color-green-dark);
-  --fern-accent-soft: var(--color-green-light);
-  --fern-accent-pale: var(--color-green-very-light);
-  --fern-accent-deep: var(--color-green-very-dark);
-
-  --fern-border: #374151;
-  --fern-border-strong: #4b5563;
-  --fern-shadow: rgba(2, 10, 24, 0.42);
-  --fern-overlay: rgba(5, 20, 42, 0.58);
-
-  --fern-danger: var(--color-red-main);
-  --fern-danger-deep: var(--color-red-dark);
-  --fern-primary: #1f4d70;
-  --fern-primary-border: #5f8fbd;
+  --fern-danger: #a03845;
+  --fern-danger-deep: #6b0e19;
+  --fern-primary: #0284c7;
+  --fern-primary-border: #38bdf8;
   --fern-text-inverse: #ffffff;
+  --fern-shadow: rgba(0, 0, 0, 0.5);
+  --fern-overlay: rgba(4, 8, 5, 0.75);
 }

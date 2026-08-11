@@ -860,16 +860,15 @@ input[type="range"] {
 }
 
 .chip-btn:hover {
-  border-color: var(--fern-control-border-hover);
+  border-color: var(--fern-accent-soft);
   color: var(--fern-text);
-  background: var(--fern-control-bg-hover);
 }
 
 .chip-btn.is-active,
 .chip-btn:active {
-  background: var(--fern-control-bg-active);
-  border-color: var(--fern-control-border-active);
-  color: var(--fern-text);
+  background: var(--fern-selected);
+  border-color: rgba(90, 126, 168, 0.5);
+  color: var(--fern-accent-pale);
 }
 
 .chip-btn-primary {
@@ -879,14 +878,13 @@ input[type="range"] {
 }
 
 .chip-btn-primary:hover {
-  background: var(--fern-control-bg-active);
-  border-color: var(--fern-control-border-active);
+  border-color: var(--fern-accent-soft);
 }
 
 .chip-btn-danger {
   background: rgba(160, 56, 69, 0.2);
   border-color: var(--fern-danger);
-  color: var(--color-red-light);
+  color: var(--fern-text-inverse);
 }
 
 .chip-btn-danger:hover {
@@ -916,7 +914,7 @@ input[type="range"] {
 
 .select-pill:focus {
   outline: none;
-  border-color: var(--fern-control-border-active);
+  border-color: var(--fern-accent-soft);
 }
 
 .inspector-color-row {

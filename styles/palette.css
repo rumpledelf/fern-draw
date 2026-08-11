@@ -1,43 +1,37 @@
+@import url("./phrond-colors.css");
+
 :root {
   /* === Exact fern-landing Base Colors === */
   --phrond-sundial-gold: #D8CAAC;
   --phrond-tile-title: #D8CAAC;
-  --phrond-tile-bg: #272C28;
-  --phrond-tile-border: #79715F;
-
-  --phrond-bg: #040805;
-  --phrond-chassis-bg: #0b140d;
-
   --phrond-text-brand: #D8CAAC;
-  --phrond-text-primary: #d4e0d7;
-  --phrond-text-muted: #87978A;
 
   /* === Fern Draw UI Tokens (Mapped directly to fern-landing) === */
-  --fern-bg: #040805;
-  --fern-header: #0b140d;
-  --fern-toolbar: #1f2320; /* Same as panel, slightly darker than #272C28 */
-  --fern-menu: #0b140d;
-  --fern-stage: #040805;
-  --fern-panel: #1f2320;   /* Shared panel background, slightly darker than #272C28 */
-  --fern-surface: #272C28;
+  --fern-bg: var(--phrond-bg);
+  --fern-header: var(--phrond-chassis-bg);
+  --fern-toolbar: var(--phrond-surface-panel);
+  --fern-menu: var(--phrond-chassis-bg);
+  --fern-stage: var(--phrond-bg);
+  --fern-panel: var(--phrond-surface-panel);
+  --fern-surface: var(--phrond-tile-bg);
   --fern-surface-soft: rgba(255, 255, 255, 0.06);
-  --fern-surface-muted: #272C28;
+  --fern-surface-muted: var(--phrond-tile-bg);
 
-  --fern-border: #79715F;
-  --fern-border-strong: #79715F;
+  --fern-border: var(--phrond-tile-border);
+  --fern-border-strong: var(--phrond-tile-border);
 
-  --fern-bg-strong: #272C28;
-  --fern-bg-deep: #0b140d;
+  --fern-bg-strong: var(--phrond-tile-bg);
+  --fern-bg-deep: var(--phrond-chassis-bg);
 
-  --fern-text: #d4e0d7;
-  --fern-text-muted: #87978A;
-  --fern-text-soft: #87978A;
-  --fern-text-on-light: #0b140d;
+  --fern-text: var(--phrond-text-primary);
+  --fern-text-muted: var(--phrond-text-muted);
+  --fern-text-soft: var(--phrond-text-muted);
+  --fern-text-on-light: var(--phrond-text-on-light);
 
   /* === Control & Button Tokens (Themeable for light/dark modes) === */
-  --fern-control-bg: #2b302c;
-  --fern-control-bg-hover: #333934;
-  --fern-control-bg-active: #3b423d;
+  --fern-control-bg: var(--phrond-surface-control);
+  --fern-control-bg-hover: var(--phrond-surface-control-hover);
+  --fern-control-bg-active: var(--phrond-surface-control-active);
   --fern-control-border: rgba(121, 113, 95, 0.45);
   --fern-control-border-hover: rgba(121, 113, 95, 0.75);
   --fern-control-border-active: rgba(121, 113, 95, 0.85);
@@ -58,5 +52,5 @@
   --fern-primary-border: #5A7EA8;
   --fern-text-inverse: #ffffff;
   --fern-shadow: rgba(0, 0, 0, 0.5);
-  --fern-overlay: rgba(4, 8, 5, 0.75);
+  --fern-overlay: var(--phrond-overlay);
 }

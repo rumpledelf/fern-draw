@@ -95,6 +95,7 @@ let fernAddNodeMode = false;
 let fernDrawPathMode = false;
 let fernPathBuildingPoints = [];
 let fernDrawingPathElement = null;
+let fernClipboard = null;
 
 function fern_saveLocalPalette() {
   try {
@@ -393,6 +394,22 @@ function fern_getCanvasPoint(event) {
   return point.matrixTransform(fernActiveSvg.getScreenCTM().inverse());
 }
 
+function fern_getElementPoint(event, element = fernActiveSvg) {
+  if (!element || !element.getScreenCTM) {
+    return fern_getCanvasPoint(event);
+  }
+  try {
+    const point = (fernActiveSvg || element.ownerSVGElement || element).createSVGPoint();
+    point.x = event.clientX;
+    point.y = event.clientY;
+    const ctm = element.getScreenCTM();
+    if (ctm) {
+      return point.matrixTransform(ctm.inverse());
+    }
+  } catch (_e) {}
+  return fern_getCanvasPoint(event);
+}
+
 function fern_getTagName(element) {
   return element.tagName.toLowerCase().replace(/^svg:/, "");
 }
@@ -618,6 +635,82 @@ function fern_syncToolbarColors() {
   }
 }
 
+function fern_getGradientInfo(element) {
+  if (!element || !fernActiveSvg) {
+    return { isGradient: false, gradId: "", grad: null, stop1: "#FFFFFF", stop2: "#416A9B", angle: 90 };
+  }
+  const fill = element.getAttribute("fill") || "";
+  const match = fill.match(/url\(#([^)]+)\)/);
+  if (match) {
+    const gradId = match[1];
+    const grad = fernActiveSvg.querySelector(`#${gradId}`);
+    if (grad) {
+      const stops = [...grad.querySelectorAll("stop")];
+      const stop1 = fern_colorToHex(stops[0]?.getAttribute("stop-color") || "#FFFFFF");
+      const stop2 = fern_colorToHex(stops[1]?.getAttribute("stop-color") || "#416A9B");
+      const x1 = Number.parseFloat(grad.getAttribute("x1") || "0");
+      const y1 = Number.parseFloat(grad.getAttribute("y1") || "0");
+      const x2 = Number.parseFloat(grad.getAttribute("x2") || "100");
+      const y2 = Number.parseFloat(grad.getAttribute("y2") || "0");
+      const angle = Math.round((Math.atan2(y2 - y1, x2 - x1) * 180 / Math.PI + 360) % 360);
+      return { isGradient: true, gradId, grad, stop1, stop2, angle };
+    }
+  }
+  const solidHex = fern_colorToHex(fill === "none" ? "#FFFFFF" : fill, "#FFFFFF");
+  return { isGradient: false, gradId: "", grad: null, stop1: solidHex, stop2: "#416A9B", angle: 90 };
+}
+
+function fern_ensureDefs() {
+  if (!fernActiveSvg) return null;
+  let defs = fernActiveSvg.querySelector("defs");
+  if (!defs) {
+    defs = document.createElementNS(FERN_SVG_NS, "defs");
+    fernActiveSvg.prepend(defs);
+  }
+  return defs;
+}
+
+function fern_setLinearGradient(element, stop1, stop2, angle = 90) {
+  if (!element || !fernActiveSvg) return;
+  const defs = fern_ensureDefs();
+  const info = fern_getGradientInfo(element);
+  let grad = info.isGradient && info.grad ? info.grad : null;
+  if (!grad) {
+    const gradId = `fern_grad_${Date.now().toString(36)}_${Math.floor(Math.random() * 1000)}`;
+    grad = document.createElementNS(FERN_SVG_NS, "linearGradient");
+    grad.setAttribute("id", gradId);
+    defs.appendChild(grad);
+  }
+
+  const rad = (angle * Math.PI) / 180;
+  const x1 = Math.round(50 - 50 * Math.cos(rad));
+  const y1 = Math.round(50 - 50 * Math.sin(rad));
+  const x2 = Math.round(50 + 50 * Math.cos(rad));
+  const y2 = Math.round(50 + 50 * Math.sin(rad));
+  grad.setAttribute("x1", `${x1}%`);
+  grad.setAttribute("y1", `${y1}%`);
+  grad.setAttribute("x2", `${x2}%`);
+  grad.setAttribute("y2", `${y2}%`);
+
+  let stops = [...grad.querySelectorAll("stop")];
+  if (stops.length < 2) {
+    grad.innerHTML = "";
+    const s1 = document.createElementNS(FERN_SVG_NS, "stop");
+    s1.setAttribute("offset", "0%");
+    s1.setAttribute("stop-color", stop1);
+    grad.appendChild(s1);
+    const s2 = document.createElementNS(FERN_SVG_NS, "stop");
+    s2.setAttribute("offset", "100%");
+    s2.setAttribute("stop-color", stop2);
+    grad.appendChild(s2);
+  } else {
+    stops[0].setAttribute("stop-color", stop1);
+    stops[1].setAttribute("stop-color", stop2);
+  }
+
+  element.setAttribute("fill", `url(#${grad.id})`);
+}
+
 function fern_setToolbarColor(role, value, updateDefaults = true) {
   const color = fern_colorToHex(value, fernToolbarColors[role] || "#ffffff").toUpperCase();
   if (updateDefaults) {
@@ -632,7 +725,15 @@ function fern_setToolbarColor(role, value, updateDefaults = true) {
     return;
   }
   fern_beginHistory();
-  fernSelectedElement.setAttribute(role, color);
+  if (fernToolbarEditSource === "selection-gradient-stop1") {
+    const info = fern_getGradientInfo(fernSelectedElement);
+    fern_setLinearGradient(fernSelectedElement, color, info.stop2, info.angle);
+  } else if (fernToolbarEditSource === "selection-gradient-stop2") {
+    const info = fern_getGradientInfo(fernSelectedElement);
+    fern_setLinearGradient(fernSelectedElement, info.stop1, color, info.angle);
+  } else {
+    fernSelectedElement.setAttribute(role, color);
+  }
   fern_commitHistory();
   fern_autoSaveLocal();
   fern_renderInspector();
@@ -782,12 +883,28 @@ function fern_updateActivePaletteColor(value, rerender = true) {
   }
 }
 
+function fern_getCurrentEditorColor() {
+  if (fernToolbarEditSource === "selection-gradient-stop1" && fernSelectedElement) {
+    const info = fern_getGradientInfo(fernSelectedElement);
+    return info.stop1;
+  }
+  if (fernToolbarEditSource === "selection-gradient-stop2" && fernSelectedElement) {
+    const info = fern_getGradientInfo(fernSelectedElement);
+    return info.stop2;
+  }
+  if (fernToolbarEditSource === "selection" && fernSelectedElement && fernToolbarEditRole) {
+    const attrVal = fernSelectedElement.getAttribute(fernToolbarEditRole);
+    return fern_colorToHex(attrVal, "#FFFFFF");
+  }
+  return fernToolbarColors[fernToolbarEditRole] || "#FFFFFF";
+}
+
 function fern_renderToolbarColorEditor() {
   const dialog = fernEditor.querySelector("[data-toolbar-color-dialog]");
   if (!dialog || !fernToolbarEditRole) {
     return;
   }
-  const color = fernToolbarColors[fernToolbarEditRole] || "#FFFFFF";
+  const color = fern_getCurrentEditorColor();
   const title = dialog.querySelector("h2");
   const hex = dialog.querySelector("[data-toolbar-color-hex]");
   const choices = dialog.querySelector("[data-toolbar-color-choices]");
@@ -819,6 +936,10 @@ function fern_updateToolbarColorFromValue(value, rerender = true) {
     if (rerender) {
       fern_renderToolbarColorEditor();
     } else if (dialog) {
+      const hex = dialog.querySelector("[data-toolbar-color-hex]");
+      if (hex) {
+        hex.value = color;
+      }
       fern_renderInlineColorPicker(dialog, color, "[data-toolbar-color-picker-surface]", "[data-toolbar-color-picker-thumb]", "[data-toolbar-color-picker-hue]");
     }
   }
@@ -1152,6 +1273,49 @@ function fern_ungroupSelected() {
   }
 }
 
+function fern_getElementCenter(element) {
+  try {
+    const box = element.getBBox();
+    if (box && Number.isFinite(box.x) && Number.isFinite(box.y) && Number.isFinite(box.width) && Number.isFinite(box.height)) {
+      return { cx: box.x + box.width / 2, cy: box.y + box.height / 2 };
+    }
+  } catch (_e) {}
+  const viewBox = fern_getViewBox();
+  return { cx: viewBox.cx, cy: viewBox.cy };
+}
+
+function fern_transformSelected(action) {
+  if (!fernSelectedElement || !fernActiveSvg) {
+    return;
+  }
+  const { cx, cy } = fern_getElementCenter(fernSelectedElement);
+  const cxF = fern_formatNumber(cx);
+  const cyF = fern_formatNumber(cy);
+  let transformStr = "";
+
+  if (action === "flip-h") {
+    transformStr = `translate(${fern_formatNumber(2 * cx)} 0) scale(-1 1)`;
+  } else if (action === "flip-v") {
+    transformStr = `translate(0 ${fern_formatNumber(2 * cy)}) scale(1 -1)`;
+  } else if (action === "rotate-cw") {
+    transformStr = `rotate(90 ${cxF} ${cyF})`;
+  } else if (action === "rotate-ccw") {
+    transformStr = `rotate(-90 ${cxF} ${cyF})`;
+  }
+
+  if (!transformStr) {
+    return;
+  }
+
+  const existing = fernSelectedElement.getAttribute("transform") || "";
+  const combined = existing.trim() ? `${transformStr} ${existing}` : transformStr;
+  fernSelectedElement.setAttribute("transform", combined);
+  fern_renderInspector();
+  fern_renderPointHandles();
+  fern_autoSaveLocal();
+  fern_setEditorStatus(`Applied ${action.replace("-", " ")}.`);
+}
+
 function fern_renderInspector() {
   const inspector = fernEditor.querySelector("[data-inspector]");
   if (!inspector) {
@@ -1188,7 +1352,11 @@ function fern_renderInspector() {
   const tag = fern_getTagName(fernSelectedElement);
   const fillVal = fernSelectedElement.getAttribute("fill") || "";
   const fillIsNone = fillVal === "none";
-  const fillHex = fern_colorToHex(fillVal, "#ffffff");
+  const gradInfo = fern_getGradientInfo(fernSelectedElement);
+  const isGradient = gradInfo.isGradient;
+  const fillHex = gradInfo.stop1;
+  const gradStop2 = gradInfo.stop2;
+  const gradAngle = gradInfo.angle;
 
   const strokeVal = fernSelectedElement.getAttribute("stroke") || "";
   const strokeIsNone = strokeVal === "none" || strokeVal === "";
@@ -1201,7 +1369,6 @@ function fern_renderInspector() {
   const strokeOpacityPercent = Math.round(Number.parseFloat(strokeOpacityVal || "1") * 100);
 
   const strokeWidth = fernSelectedElement.getAttribute("stroke-width") || "1";
-  const opacity = fernSelectedElement.getAttribute("opacity") || "1";
   const linecap = fernSelectedElement.getAttribute("stroke-linecap") || "butt";
   const linejoin = fernSelectedElement.getAttribute("stroke-linejoin") || "miter";
   const dasharray = fernSelectedElement.getAttribute("stroke-dasharray") || "";
@@ -1247,20 +1414,63 @@ function fern_renderInspector() {
   inspector.innerHTML = `
     <div class="svg-editor-selected">
       <span class="element-tag-badge">&lt;${tag}&gt;</span>
-      <div class="chip-row">
-        <button class="chip-btn" type="button" data-action="duplicate">Copy</button>
-        <button class="chip-btn chip-btn-danger" type="button" data-action="delete">Delete</button>
-      </div>
+    </div>
+
+    <div class="field-label" style="margin-top: 0.6rem;">Actions</div>
+    <div class="chip-row">
+      <button class="chip-btn chip-btn-icon" type="button" data-action="cut" title="Cut selection" aria-label="Cut selection">
+        <span class="material-icons" aria-hidden="true">content_cut</span>
+      </button>
+      <button class="chip-btn chip-btn-icon" type="button" data-action="copy" title="Copy selection" aria-label="Copy selection">
+        <span class="material-icons" aria-hidden="true">content_copy</span>
+      </button>
+      <button class="chip-btn chip-btn-icon" type="button" data-action="paste" title="Paste clipboard" aria-label="Paste clipboard">
+        <span class="material-icons" aria-hidden="true">content_paste</span>
+      </button>
+      <button class="chip-btn chip-btn-icon" type="button" data-action="duplicate" title="Duplicate selection" aria-label="Duplicate selection">
+        <span class="material-icons" aria-hidden="true">control_point_duplicate</span>
+      </button>
+      <button class="chip-btn chip-btn-icon chip-btn-danger" type="button" data-action="delete" title="Delete selection" aria-label="Delete selection">
+        <span class="material-icons" aria-hidden="true">delete</span>
+      </button>
     </div>
 
     <div class="field-label" style="margin-top: 0.6rem;">Layer &amp; Grouping</div>
     <div class="chip-row">
-      <button class="chip-btn" type="button" data-layer="top" title="Bring to Front">Front</button>
-      <button class="chip-btn" type="button" data-layer="up" title="Bring Forward">Forward</button>
-      <button class="chip-btn" type="button" data-layer="down" title="Send Backward">Backward</button>
-      <button class="chip-btn" type="button" data-layer="bottom" title="Send to Back">Back</button>
-      <button class="chip-btn" type="button" data-group-action="group" title="Group into &lt;g&gt;">Group</button>
-      <button class="chip-btn" type="button" data-group-action="ungroup" title="Ungroup &lt;g&gt;">Ungroup</button>
+      <button class="chip-btn chip-btn-icon" type="button" data-layer="top" title="Bring to Front" aria-label="Bring to Front">
+        <span class="material-icons" aria-hidden="true">flip_to_front</span>
+      </button>
+      <button class="chip-btn chip-btn-icon" type="button" data-layer="up" title="Bring Forward" aria-label="Bring Forward">
+        <span class="material-icons" aria-hidden="true">arrow_upward</span>
+      </button>
+      <button class="chip-btn chip-btn-icon" type="button" data-layer="down" title="Send Backward" aria-label="Send Backward">
+        <span class="material-icons" aria-hidden="true">arrow_downward</span>
+      </button>
+      <button class="chip-btn chip-btn-icon" type="button" data-layer="bottom" title="Send to Back" aria-label="Send to Back">
+        <span class="material-icons" aria-hidden="true">flip_to_back</span>
+      </button>
+      <button class="chip-btn chip-btn-icon" type="button" data-group-action="group" title="Group into &lt;g&gt;" aria-label="Group into &lt;g&gt;">
+        <span class="material-icons" aria-hidden="true">layers</span>
+      </button>
+      <button class="chip-btn chip-btn-icon" type="button" data-group-action="ungroup" title="Ungroup &lt;g&gt;" aria-label="Ungroup &lt;g&gt;">
+        <span class="material-icons" aria-hidden="true">layers_clear</span>
+      </button>
+    </div>
+
+    <div class="field-label" style="margin-top: 0.6rem;">Transform</div>
+    <div class="chip-row">
+      <button class="chip-btn chip-btn-icon" type="button" data-transform-action="flip-h" title="Flip horizontally" aria-label="Flip horizontally">
+        <span class="material-icons" aria-hidden="true">flip</span>
+      </button>
+      <button class="chip-btn chip-btn-icon" type="button" data-transform-action="flip-v" title="Flip vertically" aria-label="Flip vertically">
+        <span class="material-icons" aria-hidden="true" style="transform: rotate(90deg); display: inline-block;">flip</span>
+      </button>
+      <button class="chip-btn chip-btn-icon" type="button" data-transform-action="rotate-cw" title="Rotate 90° clockwise" aria-label="Rotate 90° clockwise">
+        <span class="material-icons" aria-hidden="true">rotate_right</span>
+      </button>
+      <button class="chip-btn chip-btn-icon" type="button" data-transform-action="rotate-ccw" title="Rotate 90° counter-clockwise" aria-label="Rotate 90° counter-clockwise">
+        <span class="material-icons" aria-hidden="true">rotate_left</span>
+      </button>
     </div>
 
     <div class="field-label" style="margin-top: 0.8rem;">Fill &amp; Stroke</div>
@@ -1268,22 +1478,45 @@ function fern_renderInspector() {
       <div class="color-picker-group">
         <span class="subgroup-title">Fill</span>
         <div class="color-input-wrapper">
-          <button class="color-input-swatch" type="button" data-action="edit-toolbar-color" data-color-role="fill" data-color-source="selection" style="background: ${fillHex}" aria-label="Edit Fill color" ${fillIsNone ? 'disabled' : ''}></button>
-          <label class="none-check-label">
-            <input type="checkbox" data-attr-none="fill" ${fillIsNone ? 'checked' : ''}>
-            <span>None</span>
-          </label>
+          ${isGradient ? `
+            <div class="color-swatches-paired">
+              <button class="color-input-swatch" type="button" data-action="edit-toolbar-color" data-color-role="fill" data-color-source="selection-gradient-stop1" style="background: ${fillHex}" aria-label="Edit Gradient Start Color" title="Start Color" ${fillIsNone ? 'disabled' : ''}></button>
+              <button class="color-input-swatch" type="button" data-action="edit-toolbar-color" data-color-role="fill" data-color-source="selection-gradient-stop2" style="background: ${gradStop2}" aria-label="Edit Gradient End Color" title="End Color" ${fillIsNone ? 'disabled' : ''}></button>
+            </div>
+          ` : `
+            <button class="color-input-swatch" type="button" data-action="edit-toolbar-color" data-color-role="fill" data-color-source="selection" style="background: ${fillHex}" aria-label="Edit Fill color" title="Fill Color" ${fillIsNone ? 'disabled' : ''}></button>
+          `}
+          <div class="color-checkboxes-stack">
+            <label class="none-check-label">
+              <input type="checkbox" data-attr-none="fill" ${fillIsNone ? 'checked' : ''}>
+              <span>None</span>
+            </label>
+            <label class="none-check-label">
+              <input type="checkbox" data-attr-gradient="fill" ${isGradient ? 'checked' : ''} ${fillIsNone ? 'disabled' : ''}>
+              <span>Gradient</span>
+            </label>
+          </div>
         </div>
         <div class="opacity-slider-wrapper">
           <span class="slider-label">Alpha</span>
           <input type="range" min="0" max="100" step="1" data-attr-opacity="fill" value="${fillOpacityPercent}" ${fillIsNone ? 'disabled' : ''}>
           <span class="slider-value" data-opacity-readout="fill">${fillOpacityPercent}%</span>
         </div>
+        ${isGradient && !fillIsNone ? `
+          <div class="gradient-angle-field">
+            <div class="gradient-angle-header">
+              <span>Angle</span>
+              <span data-gradient-angle-readout>${gradAngle}°</span>
+            </div>
+            <input type="range" min="0" max="360" step="1" data-gradient-angle value="${gradAngle}">
+          </div>
+        ` : ''}
       </div>
+
       <div class="color-picker-group">
         <span class="subgroup-title">Stroke</span>
         <div class="color-input-wrapper">
-          <button class="color-input-swatch" type="button" data-action="edit-toolbar-color" data-color-role="stroke" data-color-source="selection" style="background: ${strokeHex}" aria-label="Edit Stroke color" ${strokeIsNone ? 'disabled' : ''}></button>
+          <button class="color-input-swatch" type="button" data-action="edit-toolbar-color" data-color-role="stroke" data-color-source="selection" style="background: ${strokeHex}" aria-label="Edit Stroke color" title="Stroke Color" ${strokeIsNone ? 'disabled' : ''}></button>
           <label class="none-check-label">
             <input type="checkbox" data-attr-none="stroke" ${strokeIsNone ? 'checked' : ''}>
             <span>None</span>
@@ -1294,18 +1527,14 @@ function fern_renderInspector() {
           <input type="range" min="0" max="100" step="1" data-attr-opacity="stroke" value="${strokeOpacityPercent}" ${strokeIsNone ? 'disabled' : ''}>
           <span class="slider-value" data-opacity-readout="stroke">${strokeOpacityPercent}%</span>
         </div>
+        <div class="stroke-width-field">
+          <span>Width</span>
+          <input class="select-pill" type="number" step="0.5" min="0" data-attr="stroke-width" value="${strokeWidth}" ${strokeIsNone ? 'disabled' : ''}>
+        </div>
       </div>
     </div>
 
     <div class="inspector-grid" style="margin-top: 0.6rem;">
-      <label>
-        <span>Stroke Width</span>
-        <input class="select-pill" type="number" step="0.5" min="0" data-attr="stroke-width" value="${strokeWidth}">
-      </label>
-      <label>
-        <span>Opacity</span>
-        <input class="select-pill" type="number" step="0.05" min="0" max="1" data-attr="opacity" value="${opacity}">
-      </label>
       <label>
         <span>Line Cap</span>
         <select class="select-pill" data-attr="stroke-linecap">
@@ -1424,7 +1653,41 @@ function fern_updateDocumentAttr(event) {
 function fern_updateColorAttr(event) {
   const colorInput = event.target.closest("[data-attr-color]");
   const noneInput = event.target.closest("[data-attr-none]");
+  const gradientInput = event.target.closest("[data-attr-gradient]");
+  const gradientAngleInput = event.target.closest("[data-gradient-angle]");
   const opacityInput = event.target.closest("[data-attr-opacity]");
+
+  if (gradientAngleInput && fernSelectedElement) {
+    const angle = Number.parseInt(gradientAngleInput.value, 10) || 0;
+    const info = fern_getGradientInfo(fernSelectedElement);
+    fern_beginHistory();
+    fern_setLinearGradient(fernSelectedElement, info.stop1, info.stop2, angle);
+    const readout = fernEditor.querySelector("[data-gradient-angle-readout]");
+    if (readout) {
+      readout.textContent = `${angle}°`;
+    }
+    if (event.type === "change") {
+      fern_commitHistory();
+      fern_autoSaveLocal();
+    }
+    return;
+  }
+
+  if (gradientInput && fernSelectedElement) {
+    const info = fern_getGradientInfo(fernSelectedElement);
+    fern_beginHistory();
+    if (gradientInput.checked) {
+      fern_setLinearGradient(fernSelectedElement, info.stop1, info.stop2, info.angle);
+      const noneBox = fernEditor.querySelector('[data-attr-none="fill"]');
+      if (noneBox) noneBox.checked = false;
+    } else {
+      fernSelectedElement.setAttribute("fill", info.stop1);
+    }
+    fern_renderInspector();
+    fern_commitHistory();
+    fern_autoSaveLocal();
+    return;
+  }
 
   if (opacityInput && fernSelectedElement) {
     const targetAttr = opacityInput.dataset.attrOpacity;
@@ -1942,6 +2205,10 @@ function fern_renderPointHandles() {
 
   const group = document.createElementNS(FERN_SVG_NS, "g");
   group.setAttribute("data-editor-handles", "");
+  const transform = fernSelectedElement.getAttribute("transform");
+  if (transform) {
+    group.setAttribute("transform", transform);
+  }
   const handleScale = 1 / fernZoomLevel;
   const segmentPath = fern_selectedSegmentPath(refs);
   if (segmentPath) {
@@ -2524,6 +2791,11 @@ function fern_translatePoints(points, dx, dy) {
 function fern_moveElement(element, dx, dy, original) {
   dx = fern_snap(dx);
   dy = fern_snap(dy);
+  if (original.transform) {
+    const prefix = `translate(${fern_formatNumber(dx)} ${fern_formatNumber(dy)})`;
+    element.setAttribute("transform", `${prefix} ${original.transform}`);
+    return;
+  }
   const tag = fern_getTagName(element);
 
   if (tag === "rect") {
@@ -2663,6 +2935,87 @@ function fern_alignSelected(mode) {
   fern_renderPointHandles();
 }
 
+function fern_copySelected() {
+  if (!fernSelectedElement || !fernActiveSvg) {
+    fern_setEditorStatus("Select a shape to copy.");
+    return false;
+  }
+  const clone = fernSelectedElement.cloneNode(true);
+  clone.classList.remove("is-svg-selected");
+  const xml = clone.outerHTML;
+  fernClipboard = xml;
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(xml).catch(() => {});
+  }
+  fern_setEditorStatus(`Copied <${fern_getTagName(fernSelectedElement)}> to clipboard.`);
+  return true;
+}
+
+function fern_cutSelected() {
+  if (!fernSelectedElement || !fernActiveSvg) {
+    fern_setEditorStatus("Select a shape to cut.");
+    return false;
+  }
+  const tag = fern_getTagName(fernSelectedElement);
+  fern_copySelected();
+  fern_beginHistory();
+  fernSelectedElement.remove();
+  fern_selectElement(null);
+  fern_commitHistory();
+  fern_setEditorStatus(`Cut <${tag}> to clipboard.`);
+  return true;
+}
+
+function fern_pasteClipboard() {
+  if (!fernActiveSvg) {
+    return;
+  }
+  if (!fernClipboard) {
+    fern_setEditorStatus("Clipboard is empty.");
+    return;
+  }
+  try {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(`<svg xmlns="${FERN_SVG_NS}">${fernClipboard}</svg>`, "image/svg+xml");
+    const parserError = doc.querySelector("parsererror");
+    if (parserError) {
+      fern_setEditorStatus("Unable to paste SVG data.");
+      return;
+    }
+    const svgRoot = doc.documentElement;
+    const pastedNode = svgRoot.firstElementChild;
+    if (!pastedNode) {
+      fern_setEditorStatus("Clipboard is empty.");
+      return;
+    }
+    const importedNode = document.importNode(pastedNode, true);
+    importedNode.classList.remove("is-svg-selected");
+
+    fern_translateElementBy(importedNode, 4, 4);
+
+    fern_beginHistory();
+    if (fernSelectedElement && fernSelectedElement.parentElement) {
+      fernSelectedElement.after(importedNode);
+    } else {
+      const gridOrHandles = fernActiveSvg.querySelector("[data-editor-grid], [data-editor-handles]");
+      if (gridOrHandles) {
+        gridOrHandles.before(importedNode);
+      } else {
+        fernActiveSvg.appendChild(importedNode);
+      }
+    }
+    fern_selectElement(importedNode);
+    fern_commitHistory();
+    fern_setEditorStatus(`Pasted <${fern_getTagName(importedNode)}>.`);
+
+    const nextClone = importedNode.cloneNode(true);
+    nextClone.classList.remove("is-svg-selected");
+    fernClipboard = nextClone.outerHTML;
+  } catch (_err) {
+    fern_setEditorStatus("Failed to paste element.");
+  }
+}
+
 function fern_duplicateSelected() {
   if (!fernSelectedElement || !fernActiveSvg) {
     fern_setEditorStatus("Select a shape to duplicate.");
@@ -2792,7 +3145,7 @@ function fern_handlePointerDown(event) {
       return;
     }
 
-    const point = fern_getCanvasPoint(event);
+    const point = fern_getElementPoint(event, fernSelectedElement);
     fernSelectedPointIndex = Number.parseInt(handle.dataset.pointIndex, 10);
     if (event.shiftKey && fern_refHasPosition(ref)) {
       if (fernSelectedNodeIndices.has(fernSelectedPointIndex)) {
@@ -2863,7 +3216,7 @@ function fern_handlePointerMove(event) {
   }
 
   if (fernPointDragState && fernSelectedElement) {
-    const point = pointerPoint;
+    const point = fern_getElementPoint(event, fernSelectedElement);
     const x = fern_snap(fernPointDragState.startX + point.x - fernPointDragState.startPointerX);
     const y = fern_snap(fernPointDragState.startY + point.y - fernPointDragState.startPointerY);
     fernPointDragState.moved = fernPointDragState.moved || x !== fernPointDragState.startX || y !== fernPointDragState.startY;
@@ -3339,7 +3692,8 @@ async function fern_setupEditor() {
     }
     const toolbarHue = event.target.closest("[data-toolbar-color-picker-hue]");
     if (toolbarHue && fernToolbarEditRole) {
-      const hsv = fern_hexToHsv(fernToolbarColors[fernToolbarEditRole]);
+      const currentColor = fern_getCurrentEditorColor();
+      const hsv = fern_hexToHsv(currentColor);
       hsv.h = Number(toolbarHue.value) || 0;
       fern_updateToolbarColorFromValue(fern_hsvToHex(hsv), false);
     }
@@ -3359,7 +3713,7 @@ async function fern_setupEditor() {
       const brightness = 1 - Math.max(0, Math.min(1, (pointerEvent.clientY - bounds.top) / bounds.height));
       const currentColor = paletteSurface
         ? fern_paletteEditorColors()[fernActivePaletteSlot]
-        : fernToolbarColors[fernToolbarEditRole];
+        : fern_getCurrentEditorColor();
       const hsv = fern_hexToHsv(currentColor);
       const color = fern_hsvToHex({ h: hsv.h, s: saturation, v: brightness });
       if (paletteSurface) {
@@ -3419,6 +3773,34 @@ async function fern_setupEditor() {
       fern_redo();
       return;
     }
+    if (modifier && event.key.toLowerCase() === "c") {
+      if (fernSelectedElement) {
+        event.preventDefault();
+        fern_copySelected();
+      }
+      return;
+    }
+    if (modifier && event.key.toLowerCase() === "x") {
+      if (fernSelectedElement) {
+        event.preventDefault();
+        fern_cutSelected();
+      }
+      return;
+    }
+    if (modifier && event.key.toLowerCase() === "v") {
+      event.preventDefault();
+      fern_pasteClipboard();
+      return;
+    }
+    if (modifier && event.key.toLowerCase() === "d") {
+      if (fernSelectedElement) {
+        event.preventDefault();
+        fern_beginHistory();
+        fern_duplicateSelected();
+        fern_commitHistory();
+      }
+      return;
+    }
     if (event.key !== "Delete" && event.key !== "Backspace") {
       return;
     }
@@ -3474,6 +3856,7 @@ async function fern_setupEditor() {
     const nodeActionButton = event.target.closest("[data-node-action]");
     const layerButton = event.target.closest("[data-layer]");
     const groupButton = event.target.closest("[data-group-action]");
+    const transformButton = event.target.closest("[data-transform-action]");
     const canvasBgButton = event.target.closest("[data-canvas-bg]");
     const paletteSlotButton = event.target.closest("[data-palette-slot]");
     const toolbarChoiceButton = event.target.closest("[data-toolbar-color-choice]");
@@ -3496,6 +3879,10 @@ async function fern_setupEditor() {
       } else if (groupButton.dataset.groupAction === "ungroup") {
         fern_ungroupSelected();
       }
+      fern_commitHistory();
+    } else if (transformButton && fernSelectedElement) {
+      fern_beginHistory();
+      fern_transformSelected(transformButton.dataset.transformAction);
       fern_commitHistory();
     } else if (addButton) {
       fern_addShape(addButton.dataset.add);
@@ -3572,13 +3959,22 @@ async function fern_setupEditor() {
       fern_saveColorSet();
     } else if (actionButton && actionButton.dataset.action === "show-shortcuts") {
       fern_closeAllMenus();
-      fern_setEditorStatus("Shortcuts: Space pans · Ctrl/Cmd+Z undoes · Ctrl/Cmd+I toggles the inspector.");
+      fern_setEditorStatus("Shortcuts: Space pans · Ctrl/Cmd+Z undo · Ctrl/Cmd+X cut · Ctrl/Cmd+C copy · Ctrl/Cmd+V paste · Ctrl/Cmd+D duplicate.");
     } else if (actionButton && actionButton.dataset.action === "show-about") {
       fern_closeAllMenus();
-      fern_setEditorStatus("Phrond Draw — edit SVG files locally.");
+      fern_setEditorStatus("Phrond Draw - edit SVG files locally.");
     } else if (actionButton && actionButton.dataset.action === "reload") {
       fern_closeAllMenus();
       fern_revertSvg();
+    } else if (actionButton && actionButton.dataset.action === "cut") {
+      fern_closeAllMenus();
+      fern_cutSelected();
+    } else if (actionButton && actionButton.dataset.action === "copy") {
+      fern_closeAllMenus();
+      fern_copySelected();
+    } else if (actionButton && actionButton.dataset.action === "paste") {
+      fern_closeAllMenus();
+      fern_pasteClipboard();
     } else if (actionButton && actionButton.dataset.action === "duplicate-radial") {
       fern_beginHistory();
       fern_duplicateSelectedRadially();

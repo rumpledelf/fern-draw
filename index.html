@@ -33,6 +33,7 @@
                 <li class="site-submenu-option" data-action="reload">Revert</li>
                 <li class="site-submenu-divider"></li>
                 <li class="site-submenu-option" data-action="save">Save to Computer</li>
+                <li class="site-submenu-option" data-action="save-to-account" data-account-only hidden>Save to account</li>
               </ul>
             </div>
 
@@ -101,18 +102,24 @@
             <button class="chip-btn" type="button" data-action="zoom-fit" title="Fit to Drawing">Fit</button>
             <button class="chip-btn chip-btn-icon" type="button" data-action="zoom-in" title="Zoom In">+</button>
 
+            <div class="topbar-color-controls" aria-label="Colors">
+              <button class="topbar-color-control" type="button" data-action="edit-toolbar-color" data-color-role="fill" data-color-source="toolbar" title="Edit Fill color">
+                <span>Fill</span>
+                <span class="topbar-color-swatch" data-toolbar-swatch="fill" aria-hidden="true"></span>
+              </button>
+              <button class="topbar-color-control" type="button" data-action="edit-toolbar-color" data-color-role="stroke" data-color-source="toolbar" title="Edit Stroke color">
+                <span>Stroke</span>
+                <span class="topbar-color-swatch" data-toolbar-swatch="stroke" aria-hidden="true"></span>
+              </button>
+              <button class="chip-btn" type="button" data-action="edit-color-set" title="Edit colors">Edit colors</button>
+            </div>
+
             <span class="toolbar-separator"></span>
 
             <!-- File badge -->
             <strong class="file-name-pill" data-current-file title="Current File">untitled.svg</strong>
           </div>
 
-          <div class="topbar-right">
-            <button class="chip-btn" type="button" data-action="toggle-inspector" title="Toggle Inspector Panel (Ctrl+I)">
-              Panel ◧
-            </button>
-            <button class="chip-btn chip-btn-primary" type="button" data-action="save" title="Save to computer">Save</button>
-          </div>
         </header>
 
         <section class="site-toolbar-row" aria-label="Drawing toolbar">
@@ -185,15 +192,85 @@
                 <p class="svg-editor-empty">Select a shape to inspect.</p>
               </div>
             </div>
-
+            <div class="svg-editor-panel-status" data-editor-status aria-live="polite">Ready.</div>
           </aside>
+          <div class="svg-editor-coordinate" data-coordinate-readout aria-label="Viewport coordinates" aria-live="polite">--, --</div>
         </section>
 
-        <footer class="editor-statusbar">
-          <span class="svg-editor-status" data-editor-status aria-live="polite">Ready.</span>
-          <div class="svg-editor-coordinate" data-coordinate-readout>--,--</div>
-        </footer>
+        <dialog class="draw-color-dialog" data-color-dialog aria-labelledby="draw-color-dialog-title">
+          <div class="draw-color-dialog-header">
+            <div>
+              <p class="field-label">Account library</p>
+              <h2 id="draw-color-dialog-title">Edit colors</h2>
+            </div>
+          </div>
+          <div class="draw-color-editor-layout">
+            <section>
+              <p class="subgroup-title" data-palette-heading>12 colors</p>
+              <div class="draw-palette-slots" data-palette-slots></div>
+              <div data-color-set-account-controls hidden>
+                <hr class="draw-color-dialog-rule">
+                <div class="draw-color-dialog-actions" data-color-dialog-actions>
+                  <label class="draw-color-load">Load saved color set
+                    <select class="select-pill" data-saved-color-set>
+                      <option value="">Choose a saved color set</option>
+                    </select>
+                  </label>
+                  <button class="chip-btn" type="button" data-action="load-color-set">Load</button>
+                </div>
+              </div>
+              <p class="draw-color-login-message" data-color-set-login-message hidden>Log into your account to manage color sets</p>
+            </section>
+            <section class="draw-color-detail">
+              <div class="draw-color-detail-heading">
+                <p class="subgroup-title" data-active-color-label>Color 1</p>
+                <span class="draw-active-color-swatch" data-active-color-swatch aria-label="Current color"></span>
+              </div>
+              <div class="draw-color-inputs">
+                <div class="draw-color-picker-group">
+                  <span class="draw-color-picker-label">Color picker</span>
+                  <div class="draw-inline-picker">
+                    <div class="draw-color-picker-surface" data-palette-picker-surface role="slider" aria-label="Color saturation and brightness" tabindex="0"><span class="draw-color-picker-thumb" data-palette-picker-thumb></span></div>
+                    <label class="draw-color-picker-hue-label">Hue<input class="draw-color-picker-hue" data-palette-picker-hue type="range" min="0" max="360" value="0" aria-label="Color hue"></label>
+                  </div>
+                </div>
+                <label>Hex<input class="select-pill" type="text" data-palette-hex value="#000000" maxlength="7" spellcheck="false"></label>
+              </div>
+            </section>
+          </div>
+          <div class="draw-color-dialog-actions draw-color-dialog-footer">
+            <button class="chip-btn chip-btn-primary" type="button" data-action="color-dialog-ok">OK</button>
+            <button class="chip-btn" type="button" data-action="color-dialog-cancel">Cancel</button>
+            <button class="chip-btn" type="button" data-action="save-color-set" data-color-set-save-account hidden>Save to account</button>
+          </div>
+        </dialog>
+
+        <dialog class="draw-toolbar-color-dialog" data-toolbar-color-dialog aria-labelledby="draw-toolbar-color-dialog-title">
+          <div class="draw-toolbar-color-dialog-header">
+            <div>
+              <p class="field-label">Drawing color</p>
+              <h2 id="draw-toolbar-color-dialog-title">Edit Fill color</h2>
+            </div>
+            <button class="chip-btn" type="button" data-action="close-toolbar-color-editor">Close</button>
+          </div>
+          <div class="draw-toolbar-color-controls">
+            <div class="draw-color-picker-group">
+              <span class="draw-color-picker-label">Color picker</span>
+              <div class="draw-inline-picker">
+                <div class="draw-color-picker-surface" data-toolbar-color-picker-surface role="slider" aria-label="Color saturation and brightness" tabindex="0"><span class="draw-color-picker-thumb" data-toolbar-color-picker-thumb></span></div>
+                <label class="draw-color-picker-hue-label">Hue<input class="draw-color-picker-hue" data-toolbar-color-picker-hue type="range" min="0" max="360" value="0" aria-label="Color hue"></label>
+              </div>
+            </div>
+            <label>Hex<input class="select-pill" type="text" data-toolbar-color-hex value="#FFFFFF" maxlength="7" spellcheck="false"></label>
+          </div>
+          <p class="subgroup-title">Choose from this set</p>
+          <div class="draw-toolbar-color-choices" data-toolbar-color-choices></div>
+        </dialog>
       </main>
+      <footer class="site-footer">
+        <nav aria-label="Footer Navigation"><a href="../../">Home</a> &bull; <a href="../../about">About</a> &bull; <a href="../../pricing">Pricing</a> &bull; <a href="https://discord.gg/C5nkWeqRsW" target="_blank" rel="noopener">Discord</a></nav>
+        <span>&copy; 2026 Phrond</span>
+      </footer>
     </div>
     <script src="/static/fern-draw.js" defer></script>
   </body>

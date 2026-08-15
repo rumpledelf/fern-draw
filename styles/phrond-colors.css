@@ -1,4 +1,4 @@
-/* Canonical shared colour contract. Copy this file unchanged into each Phrond app. */
+/* Canonical shared color contract. Copy this file unchanged into each Phrond app. */
 :root,
 [data-theme="dark"] {
   color-scheme: dark;

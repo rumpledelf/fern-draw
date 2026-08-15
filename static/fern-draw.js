@@ -3,7 +3,14 @@ const fernEditor = document.querySelector("[data-svg-editor]");
 const FERN_SVG_NS = "http://www.w3.org/2000/svg";
 const FERN_EMPTY_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"></svg>';
 const FERN_MAX_LOCAL_FILE_BYTES = 10 * 1024 * 1024;
+const FERN_DEFAULT_COLORS = [
+  "#000000", "#FFFFFF", "#8FC7E8", "#416A9B", "#78A568", "#9A704F",
+  "#8B9291", "#D58FA3", "#C9655A", "#D98B4A", "#9278AD", "#E0BD58",
+];
 const FERN_AUTOSAVE_KEY = "fern_draw_autosave_v1";
+const FERN_PALETTE_STORAGE_KEY = "fern_draw_palette_v1";
+const FERN_TOOLBAR_COLORS_STORAGE_KEY = "fern_draw_toolbar_colors_v1";
+const FERN_LOADED_COLOR_SET_STORAGE_KEY = "fern_draw_loaded_color_set_v1";
 
 function fern_autoSaveLocal() {
   if (!fernActiveSvg) {
@@ -63,6 +70,19 @@ let fernPointDragState = null;
 let fernGridGroup = null;
 let fernSelectedPointIndex = null;
 let fernSelectedNodeIndices = new Set();
+const fernToolbarColors = { fill: "#ffffff", stroke: "#000000" };
+let fernPaletteColors = [...FERN_DEFAULT_COLORS];
+let fernPaletteDraftColors = null;
+let fernActivePaletteSlot = 0;
+let fernToolbarEditRole = "";
+let fernToolbarEditSource = "toolbar";
+let fernLoadedColorSetId = "";
+let fernLoadedColorSetName = "";
+let fernPaletteDraftLoadedColorSetId = "";
+let fernPaletteDraftLoadedColorSetName = "";
+let fernSessionAuthenticated = Boolean(
+  document.body && document.body.dataset && document.body.dataset.fernAuthenticated === "true"
+);
 let fernUndoStack = [];
 let fernRedoStack = [];
 let fernPendingHistoryState = null;
@@ -75,6 +95,90 @@ let fernAddNodeMode = false;
 let fernDrawPathMode = false;
 let fernPathBuildingPoints = [];
 let fernDrawingPathElement = null;
+
+function fern_saveLocalPalette() {
+  try {
+    localStorage.setItem(FERN_PALETTE_STORAGE_KEY, JSON.stringify(fernPaletteColors));
+  } catch (_e) {}
+}
+
+function fern_loadLocalPalette() {
+  try {
+    const raw = localStorage.getItem(FERN_PALETTE_STORAGE_KEY);
+    if (!raw) {
+      return false;
+    }
+    const colors = JSON.parse(raw);
+    if (!Array.isArray(colors) || colors.length !== FERN_DEFAULT_COLORS.length) {
+      return false;
+    }
+    const normalized = colors.map((color) => fern_normalizePaletteColor(color));
+    if (normalized.some((color) => !color)) {
+      return false;
+    }
+    fernPaletteColors = normalized;
+    return true;
+  } catch (_e) {
+    return false;
+  }
+}
+
+function fern_saveToolbarColors() {
+  try {
+    localStorage.setItem(FERN_TOOLBAR_COLORS_STORAGE_KEY, JSON.stringify(fernToolbarColors));
+  } catch (_e) {}
+}
+
+function fern_loadToolbarColors() {
+  try {
+    const raw = localStorage.getItem(FERN_TOOLBAR_COLORS_STORAGE_KEY);
+    if (!raw) {
+      return false;
+    }
+    const saved = JSON.parse(raw);
+    const fill = fern_normalizePaletteColor(saved.fill);
+    const stroke = fern_normalizePaletteColor(saved.stroke);
+    if (!fill || !stroke) {
+      return false;
+    }
+    fernToolbarColors.fill = fill;
+    fernToolbarColors.stroke = stroke;
+    return true;
+  } catch (_e) {
+    return false;
+  }
+}
+
+function fern_saveLoadedColorSet() {
+  try {
+    if (fernLoadedColorSetId && fernLoadedColorSetName) {
+      localStorage.setItem(
+        FERN_LOADED_COLOR_SET_STORAGE_KEY,
+        JSON.stringify({ id: fernLoadedColorSetId, name: fernLoadedColorSetName })
+      );
+    } else {
+      localStorage.removeItem(FERN_LOADED_COLOR_SET_STORAGE_KEY);
+    }
+  } catch (_e) {}
+}
+
+function fern_loadLoadedColorSet() {
+  try {
+    const raw = localStorage.getItem(FERN_LOADED_COLOR_SET_STORAGE_KEY);
+    if (!raw) {
+      return false;
+    }
+    const saved = JSON.parse(raw);
+    if (!saved.id || !saved.name) {
+      return false;
+    }
+    fernLoadedColorSetId = String(saved.id);
+    fernLoadedColorSetName = String(saved.name);
+    return true;
+  } catch (_e) {
+    return false;
+  }
+}
 
 function fern_activateDrawPathMode() {
   fernDrawPathMode = true;
@@ -146,9 +250,9 @@ function fern_setCoordinateReadout(x = null, y = null) {
   }
 
   if (Number.isFinite(x) && Number.isFinite(y)) {
-    readout.textContent = `${fern_snap(x)},${fern_snap(y)}`;
+    readout.textContent = `${fern_snap(x)}, ${fern_snap(y)}`;
   } else {
-    readout.textContent = "--,--";
+    readout.textContent = "--, --";
   }
 }
 
@@ -454,6 +558,7 @@ function fern_selectElement(element) {
   fern_renderInspector();
   fern_renderPointHandles();
   fern_setCoordinateReadout();
+  fern_syncToolbarColors();
 }
 
 function fern_fieldTemplate(attr, value, multiline = false) {
@@ -504,6 +609,477 @@ function fern_colorToHex(colorStr, fallback = "#ffffff") {
     // Return fallback if DOM query fails
   }
   return fallback;
+}
+
+function fern_syncToolbarColors() {
+  for (const swatch of fernEditor.querySelectorAll("[data-toolbar-swatch]")) {
+    const color = fernToolbarColors[swatch.dataset.toolbarSwatch] || "#ffffff";
+    swatch.style.backgroundColor = color;
+  }
+}
+
+function fern_setToolbarColor(role, value, updateDefaults = true) {
+  const color = fern_colorToHex(value, fernToolbarColors[role] || "#ffffff").toUpperCase();
+  if (updateDefaults) {
+    fernToolbarColors[role] = color;
+    fern_saveToolbarColors();
+    fern_syncToolbarColors();
+    fern_setEditorStatus(`${role === "fill" ? "Fill" : "Stroke"} color set for the next shape.`);
+    return;
+  }
+  if (!fernSelectedElement) {
+    fern_setEditorStatus(`Select a shape to edit its ${role} color.`);
+    return;
+  }
+  fern_beginHistory();
+  fernSelectedElement.setAttribute(role, color);
+  fern_commitHistory();
+  fern_autoSaveLocal();
+  fern_renderInspector();
+  fern_setEditorStatus(`${role === "fill" ? "Fill" : "Stroke"} color updated.`);
+}
+
+function fern_normalizePaletteColor(value) {
+  const color = String(value || "").trim();
+  if (/^#[0-9a-fA-F]{6}$/.test(color)) {
+    return color.toUpperCase();
+  }
+  if (/^#[0-9a-fA-F]{3}$/.test(color)) {
+    return `#${color[1]}${color[1]}${color[2]}${color[2]}${color[3]}${color[3]}`.toUpperCase();
+  }
+  return "";
+}
+
+function fern_hexToHsv(value) {
+  const color = fern_normalizePaletteColor(value) || "#000000";
+  const red = Number.parseInt(color.slice(1, 3), 16) / 255;
+  const green = Number.parseInt(color.slice(3, 5), 16) / 255;
+  const blue = Number.parseInt(color.slice(5, 7), 16) / 255;
+  const max = Math.max(red, green, blue);
+  const min = Math.min(red, green, blue);
+  const delta = max - min;
+  let hue = 0;
+  if (delta) {
+    if (max === red) {
+      hue = 60 * (((green - blue) / delta) % 6);
+    } else if (max === green) {
+      hue = 60 * ((blue - red) / delta + 2);
+    } else {
+      hue = 60 * ((red - green) / delta + 4);
+    }
+  }
+  if (hue < 0) {
+    hue += 360;
+  }
+  return { h: hue, s: max ? delta / max : 0, v: max };
+}
+
+function fern_hsvToHex({ h, s, v }) {
+  const chroma = v * s;
+  const segment = (h / 60) % 6;
+  const x = chroma * (1 - Math.abs((segment % 2) - 1));
+  const match = v - chroma;
+  let red = 0;
+  let green = 0;
+  let blue = 0;
+  if (segment < 1) [red, green, blue] = [chroma, x, 0];
+  else if (segment < 2) [red, green, blue] = [x, chroma, 0];
+  else if (segment < 3) [red, green, blue] = [0, chroma, x];
+  else if (segment < 4) [red, green, blue] = [0, x, chroma];
+  else if (segment < 5) [red, green, blue] = [x, 0, chroma];
+  else [red, green, blue] = [chroma, 0, x];
+  return `#${[red, green, blue].map((channel) => Math.round((channel + match) * 255).toString(16).padStart(2, "0")).join("")}`.toUpperCase();
+}
+
+function fern_renderInlineColorPicker(dialog, color, surfaceSelector, thumbSelector, hueSelector) {
+  const surface = dialog.querySelector(surfaceSelector);
+  const thumb = dialog.querySelector(thumbSelector);
+  const hue = dialog.querySelector(hueSelector);
+  if (!surface || !thumb) {
+    return;
+  }
+  const hsv = fern_hexToHsv(color);
+  surface.style.background = `linear-gradient(to top, #000000, transparent), linear-gradient(to right, #FFFFFF, hsl(${hsv.h} 100% 50%))`;
+  thumb.style.left = `${hsv.s * 100}%`;
+  thumb.style.top = `${(1 - hsv.v) * 100}%`;
+  if (hue) {
+    hue.value = String(Math.round(hsv.h));
+  }
+}
+
+function fern_paletteEditorColors() {
+  return fernPaletteDraftColors || fernPaletteColors;
+}
+
+function fern_renderPaletteEditor() {
+  const dialog = fernEditor.querySelector("[data-color-dialog]");
+  if (!dialog) {
+    return;
+  }
+  const slots = dialog.querySelector("[data-palette-slots]");
+  const activeLabel = dialog.querySelector("[data-active-color-label]");
+  const activeSwatch = dialog.querySelector("[data-active-color-swatch]");
+  const hex = dialog.querySelector("[data-palette-hex]");
+  const title = dialog.querySelector("h2");
+  const colors = fern_paletteEditorColors();
+  if (slots) {
+    slots.innerHTML = colors.map((color, index) => `
+      <button class="draw-palette-slot${index === fernActivePaletteSlot ? " is-active" : ""}" type="button" data-palette-slot="${index}">
+        <span class="draw-palette-swatch" style="background: ${color}"></span>
+        <span>Color ${index + 1}</span>
+      </button>
+    `).join("");
+  }
+  if (activeLabel) {
+    activeLabel.textContent = `Color ${fernActivePaletteSlot + 1}`;
+  }
+  const activeColor = colors[fernActivePaletteSlot] || "#000000";
+  if (hex) {
+    hex.value = activeColor;
+  }
+  if (activeSwatch) {
+    activeSwatch.style.backgroundColor = activeColor;
+  }
+  if (title) {
+    const loadedName = fernPaletteDraftColors ? fernPaletteDraftLoadedColorSetName : fernLoadedColorSetName;
+    const loadedId = fernPaletteDraftColors ? fernPaletteDraftLoadedColorSetId : fernLoadedColorSetId;
+    title.textContent = fernSessionAuthenticated && loadedId && loadedName
+      ? `Edit colors - ${loadedName}`
+      : "Edit colors";
+  }
+  fern_renderInlineColorPicker(dialog, activeColor, "[data-palette-picker-surface]", "[data-palette-picker-thumb]", "[data-palette-picker-hue]");
+}
+
+function fern_setActivePaletteSlot(index) {
+  fernActivePaletteSlot = Math.max(0, Math.min(fern_paletteEditorColors().length - 1, Number(index) || 0));
+  fern_renderPaletteEditor();
+}
+
+function fern_updateActivePaletteColor(value, rerender = true) {
+  const color = fern_normalizePaletteColor(value);
+  if (!color) {
+    fern_setEditorStatus("Enter a six-digit hex color.");
+    return;
+  }
+  const colors = fern_paletteEditorColors();
+  colors[fernActivePaletteSlot] = color;
+  if (!fernPaletteDraftColors) {
+    fern_saveLocalPalette();
+  }
+  const dialog = fernEditor.querySelector("[data-color-dialog]");
+  if (rerender) {
+    fern_renderPaletteEditor();
+  } else if (dialog) {
+    const activeSwatch = dialog.querySelector(`[data-palette-slot="${fernActivePaletteSlot}"] .draw-palette-swatch`);
+    const detailSwatch = dialog.querySelector("[data-active-color-swatch]");
+    if (activeSwatch) {
+      activeSwatch.style.background = color;
+    }
+    if (detailSwatch) {
+      detailSwatch.style.backgroundColor = color;
+    }
+    fern_renderInlineColorPicker(dialog, color, "[data-palette-picker-surface]", "[data-palette-picker-thumb]", "[data-palette-picker-hue]");
+  }
+}
+
+function fern_renderToolbarColorEditor() {
+  const dialog = fernEditor.querySelector("[data-toolbar-color-dialog]");
+  if (!dialog || !fernToolbarEditRole) {
+    return;
+  }
+  const color = fernToolbarColors[fernToolbarEditRole] || "#FFFFFF";
+  const title = dialog.querySelector("h2");
+  const hex = dialog.querySelector("[data-toolbar-color-hex]");
+  const choices = dialog.querySelector("[data-toolbar-color-choices]");
+  if (title) {
+    title.textContent = `Edit ${fernToolbarEditRole === "fill" ? "Fill" : "Stroke"} color`;
+  }
+  if (hex) {
+    hex.value = color;
+  }
+  fern_renderInlineColorPicker(dialog, color, "[data-toolbar-color-picker-surface]", "[data-toolbar-color-picker-thumb]", "[data-toolbar-color-picker-hue]");
+  if (choices) {
+    choices.innerHTML = fernPaletteColors.map((paletteColor, index) => `
+      <button class="draw-palette-choice" type="button" data-toolbar-color-choice="${index}" title="Use Color ${index + 1}">
+        <span class="draw-palette-swatch" style="background: ${paletteColor}"></span>
+      </button>
+    `).join("");
+  }
+}
+
+function fern_updateToolbarColorFromValue(value, rerender = true) {
+  const color = fern_normalizePaletteColor(value);
+  if (!color) {
+    fern_setEditorStatus("Enter a six-digit hex color.");
+    return;
+  }
+  if (fernToolbarEditRole) {
+    fern_setToolbarColor(fernToolbarEditRole, color, fernToolbarEditSource === "toolbar");
+    const dialog = fernEditor.querySelector("[data-toolbar-color-dialog]");
+    if (rerender) {
+      fern_renderToolbarColorEditor();
+    } else if (dialog) {
+      fern_renderInlineColorPicker(dialog, color, "[data-toolbar-color-picker-surface]", "[data-toolbar-color-picker-thumb]", "[data-toolbar-color-picker-hue]");
+    }
+  }
+}
+
+function fern_applyToolbarPaletteChoice(index) {
+  const color = fernPaletteColors[Number(index)];
+  if (color && fernToolbarEditRole) {
+    fern_setToolbarColor(fernToolbarEditRole, color, fernToolbarEditSource === "toolbar");
+    fern_renderToolbarColorEditor();
+  }
+}
+
+function fern_renderColorSetAccess() {
+  const controls = fernEditor.querySelector("[data-color-set-account-controls]");
+  const loginMessage = fernEditor.querySelector("[data-color-set-login-message]");
+  const saveAccount = fernEditor.querySelector("[data-color-set-save-account]");
+  if (controls) {
+    controls.hidden = !fernSessionAuthenticated;
+  }
+  if (loginMessage) {
+    loginMessage.hidden = fernSessionAuthenticated;
+  }
+  if (saveAccount) {
+    saveAccount.hidden = !fernSessionAuthenticated;
+  }
+  fernEditor.querySelectorAll("[data-account-only]").forEach((element) => {
+    element.hidden = !fernSessionAuthenticated;
+  });
+}
+
+async function fern_refreshSession() {
+  const sharedSessionAuthenticated = Boolean(
+    document.body && document.body.dataset && document.body.dataset.fernAuthenticated === "true"
+  );
+  fernSessionAuthenticated = sharedSessionAuthenticated;
+  try {
+    const response = await fetch("/account/color-sets/", {
+      credentials: "same-origin",
+      headers: { Accept: "application/json" },
+    });
+    const contentType = response.headers.get("content-type") || "";
+    if (response.redirected || !response.ok || contentType.indexOf("application/json") === -1) {
+      throw new Error("Session unavailable.");
+    }
+    fernSessionAuthenticated = true;
+  } catch (_error) {
+    fernSessionAuthenticated = sharedSessionAuthenticated;
+  }
+  fern_renderColorSetAccess();
+}
+
+function fern_getCookie(name) {
+  const prefix = `${name}=`;
+  const cookie = document.cookie.split(";").map((part) => part.trim()).find((part) => part.startsWith(prefix));
+  return cookie ? cookie.slice(prefix.length) : "";
+}
+
+async function fern_getAccountColorSetRequest() {
+  const csrfResponse = await fetch("/account/color-sets/", {
+    credentials: "same-origin",
+    headers: { Accept: "application/json" },
+  });
+  const contentType = csrfResponse.headers.get("content-type") || "";
+  if (csrfResponse.redirected || contentType.indexOf("application/json") === -1) {
+    throw new Error("Sign in to use saved colors.");
+  }
+  return {
+    "X-CSRFToken": decodeURIComponent(fern_getCookie("csrftoken")),
+  };
+}
+
+async function fern_refreshSavedColorSets() {
+  try {
+    const response = await fetch("/account/color-sets/", {
+      credentials: "same-origin",
+      headers: { Accept: "application/json" },
+    });
+    const contentType = response.headers.get("content-type") || "";
+    if (response.redirected || contentType.indexOf("application/json") === -1) {
+      throw new Error("Sign in to use saved colors.");
+    }
+    const payload = await response.json();
+    const select = fernEditor.querySelector("[data-saved-color-set]");
+    const loadedId = fernPaletteDraftColors ? fernPaletteDraftLoadedColorSetId : fernLoadedColorSetId;
+    if (select) {
+      select.innerHTML = '<option value="">Choose a saved color set</option>';
+      payload.color_sets.forEach((item) => {
+        const option = document.createElement("option");
+        option.value = item.id;
+        option.textContent = item.name;
+        option.selected = item.id === loadedId;
+        select.append(option);
+      });
+    }
+  } catch (error) {
+    fern_setEditorStatus(error.message || "Could not load saved colors.");
+  }
+}
+
+async function fern_saveColorSet() {
+  const colors = fern_paletteEditorColors();
+  const loadedId = fernPaletteDraftColors ? fernPaletteDraftLoadedColorSetId : fernLoadedColorSetId;
+  const loadedName = fernPaletteDraftColors ? fernPaletteDraftLoadedColorSetName : fernLoadedColorSetName;
+  let name = loadedName;
+  if (!loadedId) {
+    name = window.prompt("Name this color set", fernCurrentFileName.replace(/\.svg$/i, "") || "Draw colors");
+    if (!name || !name.trim()) {
+      return;
+    }
+  }
+  try {
+    const csrfHeaders = await fern_getAccountColorSetRequest();
+    const isUpdate = Boolean(loadedId);
+    const url = isUpdate ? `/account/color-sets/${loadedId}/` : "/account/color-sets/";
+    const saveResponse = await fetch(url, {
+      method: isUpdate ? "PUT" : "POST",
+      credentials: "same-origin",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        ...csrfHeaders,
+      },
+      body: JSON.stringify({ name: name.trim(), colors, originating_tool_id: "draw" }),
+    });
+    const payload = await saveResponse.json();
+    if (!saveResponse.ok) {
+      throw new Error(payload.message || "Could not save the color set.");
+    }
+    if (fernPaletteDraftColors) {
+      fernPaletteDraftLoadedColorSetId = payload.id;
+      fernPaletteDraftLoadedColorSetName = payload.name;
+    } else {
+      fernLoadedColorSetId = payload.id;
+      fernLoadedColorSetName = payload.name;
+      fern_saveLoadedColorSet();
+    }
+    fern_renderPaletteEditor();
+    await fern_refreshSavedColorSets();
+    fern_setEditorStatus(`Saved ${payload.name} to your account library.`);
+  } catch (error) {
+    fern_setEditorStatus(error.message || "Could not save the color set.");
+  }
+}
+
+async function fern_loadColorSet() {
+  const select = fernEditor.querySelector("[data-saved-color-set]");
+  const id = select ? select.value : "";
+  if (!id) {
+    fern_setEditorStatus("Choose a saved color set to load.");
+    return;
+  }
+  try {
+    const response = await fetch(`/account/color-sets/${id}/`, {
+      credentials: "same-origin",
+      headers: { Accept: "application/json" },
+    });
+    const payload = await response.json();
+    if (!response.ok || !Array.isArray(payload.colors) || payload.colors.length !== 12) {
+      throw new Error(payload.message || "Could not load the color set.");
+    }
+    const loadedColors = payload.colors.map((color) => fern_normalizePaletteColor(color));
+    if (fernPaletteDraftColors) {
+      fernPaletteDraftColors = loadedColors;
+      fernPaletteDraftLoadedColorSetId = payload.id;
+      fernPaletteDraftLoadedColorSetName = payload.name;
+    } else {
+      fernPaletteColors = loadedColors;
+      fernLoadedColorSetId = payload.id;
+      fernLoadedColorSetName = payload.name;
+      fern_saveLoadedColorSet();
+      fern_saveLocalPalette();
+    }
+    fernActivePaletteSlot = 0;
+    fern_renderPaletteEditor();
+    fern_setEditorStatus(`Loaded ${payload.name}.`);
+  } catch (error) {
+    fern_setEditorStatus(error.message || "Could not load the color set.");
+  }
+}
+
+async function fern_openColorEditor() {
+  const dialog = fernEditor.querySelector("[data-color-dialog]");
+  if (!dialog) {
+    return;
+  }
+  fernToolbarEditRole = "";
+  fernPaletteDraftColors = [...fernPaletteColors];
+  fernPaletteDraftLoadedColorSetId = fernLoadedColorSetId;
+  fernPaletteDraftLoadedColorSetName = fernLoadedColorSetName;
+  await fern_refreshSession();
+  fern_renderPaletteEditor();
+  if (typeof dialog.showModal === "function") {
+    dialog.showModal();
+  } else {
+    dialog.setAttribute("open", "");
+  }
+  if (fernSessionAuthenticated) {
+    await fern_refreshSavedColorSets();
+  }
+}
+
+function fern_commitColorEditor() {
+  if (fernPaletteDraftColors) {
+    fernPaletteColors = [...fernPaletteDraftColors];
+    fernLoadedColorSetId = fernPaletteDraftLoadedColorSetId;
+    fernLoadedColorSetName = fernPaletteDraftLoadedColorSetName;
+    fern_saveLocalPalette();
+    fern_saveLoadedColorSet();
+  }
+  fernPaletteDraftColors = null;
+  fernPaletteDraftLoadedColorSetId = "";
+  fernPaletteDraftLoadedColorSetName = "";
+  fern_closeColorEditor();
+}
+
+function fern_cancelColorEditor() {
+  fernPaletteDraftColors = null;
+  fernPaletteDraftLoadedColorSetId = "";
+  fernPaletteDraftLoadedColorSetName = "";
+  fern_closeColorEditor();
+}
+
+function fern_openToolbarColorEditor(role, source = "toolbar") {
+  const dialog = fernEditor.querySelector("[data-toolbar-color-dialog]");
+  if (!dialog || !["fill", "stroke"].includes(role)) {
+    return;
+  }
+  fernToolbarEditRole = role;
+  fernToolbarEditSource = source;
+  if (typeof dialog.showModal === "function") {
+    dialog.showModal();
+  } else {
+    dialog.setAttribute("open", "");
+  }
+  fern_renderToolbarColorEditor();
+  window.requestAnimationFrame(() => {
+    if (dialog.open || dialog.hasAttribute("open")) {
+      fern_renderToolbarColorEditor();
+    }
+  });
+}
+
+function fern_closeColorEditor() {
+  const dialog = fernEditor.querySelector("[data-color-dialog]");
+  if (dialog && typeof dialog.close === "function") {
+    dialog.close();
+  } else if (dialog) {
+    dialog.removeAttribute("open");
+  }
+  fernToolbarEditRole = "";
+}
+function fern_closeToolbarColorEditor() {
+  const dialog = fernEditor.querySelector("[data-toolbar-color-dialog]");
+  if (dialog && typeof dialog.close === "function") {
+    dialog.close();
+  } else if (dialog) {
+    dialog.removeAttribute("open");
+  }
+  fernToolbarEditRole = "";
+  fernToolbarEditSource = "toolbar";
 }
 
 function fern_setCanvasBackground(mode) {
@@ -605,12 +1181,6 @@ function fern_renderInspector() {
         </label>
       </div>
 
-      <div class="field-label" style="margin-top: 0.8rem;">Canvas Background</div>
-      <div class="chip-row">
-        <button class="chip-btn ${fernCanvasBgMode === 'dark' ? 'is-active' : ''}" type="button" data-canvas-bg="dark">Dark</button>
-        <button class="chip-btn ${fernCanvasBgMode === 'light' ? 'is-active' : ''}" type="button" data-canvas-bg="light">Light</button>
-        <button class="chip-btn ${fernCanvasBgMode === 'checkerboard' ? 'is-active' : ''}" type="button" data-canvas-bg="checkerboard">Grid</button>
-      </div>
     `;
     return;
   }
@@ -698,7 +1268,7 @@ function fern_renderInspector() {
       <div class="color-picker-group">
         <span class="subgroup-title">Fill</span>
         <div class="color-input-wrapper">
-          <input type="color" data-attr-color="fill" value="${fillHex}" ${fillIsNone ? 'disabled' : ''}>
+          <button class="color-input-swatch" type="button" data-action="edit-toolbar-color" data-color-role="fill" data-color-source="selection" style="background: ${fillHex}" aria-label="Edit Fill color" ${fillIsNone ? 'disabled' : ''}></button>
           <label class="none-check-label">
             <input type="checkbox" data-attr-none="fill" ${fillIsNone ? 'checked' : ''}>
             <span>None</span>
@@ -713,7 +1283,7 @@ function fern_renderInspector() {
       <div class="color-picker-group">
         <span class="subgroup-title">Stroke</span>
         <div class="color-input-wrapper">
-          <input type="color" data-attr-color="stroke" value="${strokeHex}" ${strokeIsNone ? 'disabled' : ''}>
+          <button class="color-input-swatch" type="button" data-action="edit-toolbar-color" data-color-role="stroke" data-color-source="selection" style="background: ${strokeHex}" aria-label="Edit Stroke color" ${strokeIsNone ? 'disabled' : ''}></button>
           <label class="none-check-label">
             <input type="checkbox" data-attr-none="stroke" ${strokeIsNone ? 'checked' : ''}>
             <span>None</span>
@@ -2272,15 +2842,18 @@ function fern_handlePointerDown(event) {
 }
 
 function fern_handlePointerMove(event) {
+  const pointerPoint = fern_getCanvasPoint(event);
+  fern_setCoordinateReadout(pointerPoint.x, pointerPoint.y);
+
   if (fernDrawPathMode && fernDrawingPathElement && fernPathBuildingPoints.length > 0) {
-    const point = fern_getCanvasPoint(event);
+    const point = pointerPoint;
     fern_updateDrawingPath(point);
     fern_setCoordinateReadout(point.x, point.y);
     return;
   }
 
   if (fernPanState) {
-    const point = fern_getCanvasPoint(event);
+    const point = pointerPoint;
     fernZoomCenter = {
       x: fernPanState.startCenter.x - (point.x - fernPanState.startPointerX),
       y: fernPanState.startCenter.y - (point.y - fernPanState.startPointerY),
@@ -2290,7 +2863,7 @@ function fern_handlePointerMove(event) {
   }
 
   if (fernPointDragState && fernSelectedElement) {
-    const point = fern_getCanvasPoint(event);
+    const point = pointerPoint;
     const x = fern_snap(fernPointDragState.startX + point.x - fernPointDragState.startPointerX);
     const y = fern_snap(fernPointDragState.startY + point.y - fernPointDragState.startPointerY);
     fernPointDragState.moved = fernPointDragState.moved || x !== fernPointDragState.startX || y !== fernPointDragState.startY;
@@ -2316,7 +2889,7 @@ function fern_handlePointerMove(event) {
     return;
   }
 
-  const point = fern_getCanvasPoint(event);
+  const point = pointerPoint;
   const dx = fern_snap(point.x - fernDragState.startX);
   const dy = fern_snap(point.y - fernDragState.startY);
   fern_moveElement(fernDragState.element, dx, dy, fernDragState.original);
@@ -2578,6 +3151,48 @@ async function fern_saveSvg() {
   fern_setEditorStatus(`Saved ${fernCurrentFileName} to your computer.`);
 }
 
+async function fern_saveSvgToAccount() {
+  if (!fernActiveSvg) {
+    return;
+  }
+  try {
+    await fern_refreshSession();
+    if (!fernSessionAuthenticated) {
+      fern_setEditorStatus("Log into your account to save SVGs to your account.");
+      return;
+    }
+    const csrfResponse = await fetch("/account/assets/", {
+      credentials: "same-origin",
+      headers: { Accept: "application/json" },
+    });
+    const csrfContentType = csrfResponse.headers.get("content-type") || "";
+    if (csrfResponse.redirected || !csrfResponse.ok || csrfContentType.indexOf("application/json") === -1) {
+      throw new Error("Log into your account to save SVGs to your account.");
+    }
+    const response = await fetch("/account/assets/", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        "X-CSRFToken": decodeURIComponent(fern_getCookie("csrftoken")),
+      },
+      body: JSON.stringify({
+        logical_name: fernCurrentFileName,
+        content: fern_cleanForSave(),
+        mime_type: "image/svg+xml",
+      }),
+    });
+    const payload = await response.json();
+    if (!response.ok) {
+      throw new Error(payload.message || "Could not save the SVG to your account.");
+    }
+    fern_setEditorStatus(`Saved ${payload.logical_name} to your account library.`);
+  } catch (fernError) {
+    fern_setEditorStatus(fernError.message || "Could not save the SVG to your account.");
+  }
+}
+
 function fern_revertSvg() {
   fern_loadLocalSvg(fernOriginalSvgContent, fernCurrentFileName, fernLocalFileHandle);
   fern_setEditorStatus(`Reverted ${fernCurrentFileName}.`);
@@ -2624,6 +3239,9 @@ function fern_addShape(type) {
     element.setAttribute("stroke-linejoin", "round");
   }
 
+  element.setAttribute("stroke", fernToolbarColors.stroke);
+  element.setAttribute("fill", fernToolbarColors.fill);
+
   fernActiveSvg.append(element);
   fern_selectElement(element);
   fern_commitHistory();
@@ -2639,18 +3257,21 @@ function fern_closeAllMenus() {
   });
 }
 
-function fern_toggleInspector() {
-  if (!fernEditor) {
-    return;
-  }
-  fernEditor.classList.toggle("is-inspector-collapsed");
-  const collapsed = fernEditor.classList.contains("is-inspector-collapsed");
-  fern_setEditorStatus(collapsed ? "Inspector panel hidden." : "Inspector panel visible.");
-}
-
 async function fern_setupEditor() {
   if (!fernEditor) {
     return;
+  }
+
+  fern_renderColorSetAccess();
+  await fern_refreshSession();
+  fern_loadLocalPalette();
+  fern_loadToolbarColors();
+  fern_syncToolbarColors();
+  fern_loadLoadedColorSet();
+
+  const colorDialog = fernEditor.querySelector("[data-color-dialog]");
+  if (colorDialog) {
+    colorDialog.addEventListener("cancel", fern_cancelColorEditor);
   }
 
   fernEditor.querySelector("[data-local-file-input]").addEventListener(
@@ -2691,6 +3312,70 @@ async function fern_setupEditor() {
       fern_setCanvasBackground(radio.dataset.canvasBg);
       fern_closeAllMenus();
     }
+    const paletteHex = event.target.closest("[data-palette-hex]");
+    if (paletteHex) {
+      fern_updateActivePaletteColor(paletteHex.value);
+    }
+    const toolbarHex = event.target.closest("[data-toolbar-color-hex]");
+    if (toolbarHex) {
+      fern_updateToolbarColorFromValue(toolbarHex.value);
+    }
+  });
+
+  document.addEventListener("input", (event) => {
+    const paletteHex = event.target.closest("[data-palette-hex]");
+    if (paletteHex && /^#[0-9a-fA-F]{6}$/.test(paletteHex.value.trim())) {
+      fern_updateActivePaletteColor(paletteHex.value, false);
+    }
+    const toolbarHex = event.target.closest("[data-toolbar-color-hex]");
+    if (toolbarHex && /^#[0-9a-fA-F]{6}$/.test(toolbarHex.value.trim())) {
+      fern_updateToolbarColorFromValue(toolbarHex.value, false);
+    }
+    const paletteHue = event.target.closest("[data-palette-picker-hue]");
+    if (paletteHue) {
+      const hsv = fern_hexToHsv(fern_paletteEditorColors()[fernActivePaletteSlot]);
+      hsv.h = Number(paletteHue.value) || 0;
+      fern_updateActivePaletteColor(fern_hsvToHex(hsv), false);
+    }
+    const toolbarHue = event.target.closest("[data-toolbar-color-picker-hue]");
+    if (toolbarHue && fernToolbarEditRole) {
+      const hsv = fern_hexToHsv(fernToolbarColors[fernToolbarEditRole]);
+      hsv.h = Number(toolbarHue.value) || 0;
+      fern_updateToolbarColorFromValue(fern_hsvToHex(hsv), false);
+    }
+  });
+
+  document.addEventListener("pointerdown", (event) => {
+    const paletteSurface = event.target.closest("[data-palette-picker-surface]");
+    const toolbarSurface = event.target.closest("[data-toolbar-color-picker-surface]");
+    const surface = paletteSurface || toolbarSurface;
+    if (!surface) {
+      return;
+    }
+    event.preventDefault();
+    const update = (pointerEvent) => {
+      const bounds = surface.getBoundingClientRect();
+      const saturation = Math.max(0, Math.min(1, (pointerEvent.clientX - bounds.left) / bounds.width));
+      const brightness = 1 - Math.max(0, Math.min(1, (pointerEvent.clientY - bounds.top) / bounds.height));
+      const currentColor = paletteSurface
+        ? fern_paletteEditorColors()[fernActivePaletteSlot]
+        : fernToolbarColors[fernToolbarEditRole];
+      const hsv = fern_hexToHsv(currentColor);
+      const color = fern_hsvToHex({ h: hsv.h, s: saturation, v: brightness });
+      if (paletteSurface) {
+        fern_updateActivePaletteColor(color);
+      } else {
+        fern_updateToolbarColorFromValue(color);
+      }
+    };
+    update(event);
+    const move = (moveEvent) => update(moveEvent);
+    const stop = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", stop);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", stop, { once: true });
   });
 
   document.addEventListener("keydown", (event) => {
@@ -2720,12 +3405,6 @@ async function fern_setupEditor() {
     }
 
     const modifier = event.metaKey || event.ctrlKey;
-    if (modifier && event.key.toLowerCase() === "i") {
-      event.preventDefault();
-      fern_toggleInspector();
-      return;
-    }
-
     if (modifier && event.key.toLowerCase() === "z") {
       event.preventDefault();
       if (event.shiftKey) {
@@ -2796,10 +3475,16 @@ async function fern_setupEditor() {
     const layerButton = event.target.closest("[data-layer]");
     const groupButton = event.target.closest("[data-group-action]");
     const canvasBgButton = event.target.closest("[data-canvas-bg]");
+    const paletteSlotButton = event.target.closest("[data-palette-slot]");
+    const toolbarChoiceButton = event.target.closest("[data-toolbar-color-choice]");
 
     if (canvasBgButton && canvasBgButton.tagName === "BUTTON") {
       fern_setCanvasBackground(canvasBgButton.dataset.canvasBg);
       fern_closeAllMenus();
+    } else if (paletteSlotButton) {
+      fern_setActivePaletteSlot(paletteSlotButton.dataset.paletteSlot);
+    } else if (toolbarChoiceButton) {
+      fern_applyToolbarPaletteChoice(toolbarChoiceButton.dataset.toolbarColorChoice);
     } else if (layerButton) {
       fern_beginHistory();
       fern_moveLayer(layerButton.dataset.layer);
@@ -2844,8 +3529,6 @@ async function fern_setupEditor() {
       fern_beginHistory();
       fern_deleteSelectedNodes();
       fern_commitHistory();
-    } else if (actionButton && actionButton.dataset.action === "toggle-inspector") {
-      fern_toggleInspector();
     } else if (actionButton && actionButton.dataset.action === "new") {
       fern_closeAllMenus();
       fern_newSvg();
@@ -2865,6 +3548,28 @@ async function fern_setupEditor() {
     } else if (actionButton && actionButton.dataset.action === "save") {
       fern_closeAllMenus();
       fern_saveSvg();
+    } else if (actionButton && actionButton.dataset.action === "save-to-account") {
+      fern_closeAllMenus();
+      fern_saveSvgToAccount();
+    } else if (actionButton && actionButton.dataset.action === "edit-color-set") {
+      fern_closeAllMenus();
+      fern_openColorEditor();
+    } else if (actionButton && actionButton.dataset.action === "edit-toolbar-color") {
+      fern_closeAllMenus();
+      fern_openToolbarColorEditor(actionButton.dataset.colorRole, actionButton.dataset.colorSource || "toolbar");
+    } else if (actionButton && actionButton.dataset.action === "color-dialog-ok") {
+      fern_commitColorEditor();
+    } else if (actionButton && actionButton.dataset.action === "color-dialog-cancel") {
+      fern_cancelColorEditor();
+    } else if (actionButton && actionButton.dataset.action === "close-color-editor") {
+      fern_cancelColorEditor();
+    } else if (actionButton && actionButton.dataset.action === "close-toolbar-color-editor") {
+      fern_closeToolbarColorEditor();
+    } else if (actionButton && actionButton.dataset.action === "load-color-set") {
+      fern_loadColorSet();
+    } else if (actionButton && actionButton.dataset.action === "save-color-set") {
+      fern_closeAllMenus();
+      fern_saveColorSet();
     } else if (actionButton && actionButton.dataset.action === "show-shortcuts") {
       fern_closeAllMenus();
       fern_setEditorStatus("Shortcuts: Space pans · Ctrl/Cmd+Z undoes · Ctrl/Cmd+I toggles the inspector.");

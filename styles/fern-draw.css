@@ -1311,24 +1311,45 @@ input[type="range"] {
 }
 
 .svg-editor-stage {
-  display: grid;
-  place-items: center;
+  position: relative;
+  display: block;
   min-width: 0;
+  width: 100%;
   height: 100%;
   padding: 2.5rem;
   overflow: auto;
   background: var(--fern-stage);
+  box-sizing: border-box;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.25) transparent;
+}
+
+.svg-editor-stage::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.svg-editor-stage::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.22);
+  border-radius: 5px;
+}
+
+.svg-editor-stage::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.35);
+}
+
+.svg-editor-stage::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 .svg-editor-canvas {
-  display: grid;
-  place-items: center;
-  width: min(680px, calc(100vh - 12rem), calc(100vw - 430px));
-  max-width: 100%;
-  aspect-ratio: 1;
+  display: block;
+  margin: 0 auto;
   border: 1px solid var(--fern-border-strong);
   border-radius: 2px;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.45);
   transition: background 200ms ease;
+  box-sizing: border-box;
 }
 
 .svg-editor-canvas.is-bg-dark {
@@ -1353,15 +1374,11 @@ input[type="range"] {
 }
 
 .icon-editor-svg > * {
-  cursor: move;
+  cursor: inherit;
 }
 
-.icon-editor-svg.is-zoomed {
-  cursor: grab;
-}
-
-.icon-editor-svg.is-zoomed.is-panning {
-  cursor: grabbing;
+.icon-editor-svg.is-panning {
+  cursor: grabbing !important;
 }
 
 .icon-editor-svg.is-adding-node,
@@ -1421,22 +1438,35 @@ input[type="range"] {
 }
 
 .svg-grid-line {
-  stroke: rgba(206, 225, 214, 0.32);
-  stroke-width: 0.22;
+  stroke: rgba(255, 255, 255, 0.15);
+  stroke-width: 0.5;
   vector-effect: non-scaling-stroke;
   pointer-events: none;
 }
 
 .svg-grid-major {
-  stroke: rgba(206, 225, 214, 0.58);
-  stroke-width: 0.35;
+  stroke: rgba(255, 255, 255, 0.35);
+  stroke-width: 1;
 }
 
 .svg-grid-center {
-  stroke: rgba(206, 225, 214, 0.72);
-  stroke-width: 0.45;
+  stroke: rgba(77, 163, 255, 0.65);
+  stroke-width: 1.2;
   vector-effect: non-scaling-stroke;
   pointer-events: none;
+}
+
+/* Light canvas background grid contrast */
+.is-bg-light .svg-grid-line {
+  stroke: rgba(0, 0, 0, 0.12);
+}
+
+.is-bg-light .svg-grid-major {
+  stroke: rgba(0, 0, 0, 0.28);
+}
+
+.is-bg-light .svg-grid-center {
+  stroke: rgba(37, 99, 235, 0.7);
 }
 
 .svg-editor-panel {
@@ -1611,6 +1641,244 @@ input[type="range"] {
   margin: 0;
   color: var(--fern-text-soft);
   font-size: 0.85rem;
+}
+
+/* Marquee selection box */
+.svg-marquee-box {
+  fill: rgba(77, 163, 255, 0.12);
+  stroke: #4da3ff;
+  stroke-width: 1;
+  stroke-dasharray: 4 3;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+}
+
+/* Selection bounding box & resize handles */
+.svg-bounding-box {
+  fill: none;
+  stroke: #4da3ff;
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+}
+
+.svg-resize-handle {
+  fill: #ffffff;
+  stroke: #4da3ff;
+  stroke-width: 1.2;
+  vector-effect: non-scaling-stroke;
+  cursor: pointer;
+}
+
+.svg-resize-handle-nw, .svg-resize-handle-se { cursor: nwse-resize; }
+.svg-resize-handle-ne, .svg-resize-handle-sw { cursor: nesw-resize; }
+.svg-resize-handle-n, .svg-resize-handle-s { cursor: ns-resize; }
+.svg-resize-handle-e, .svg-resize-handle-w { cursor: ew-resize; }
+
+.svg-resize-handle:hover {
+  fill: #4da3ff;
+  stroke: #ffffff;
+}
+
+/* Trace Backdrop */
+.svg-trace-backdrop {
+  pointer-events: none;
+  user-select: none;
+}
+
+/* Mode cursors */
+.icon-editor-svg.is-mode-pan,
+.icon-editor-svg.is-mode-pan > *,
+.icon-editor-svg.is-mode-draw,
+.icon-editor-svg.is-mode-draw > * {
+  cursor: grab;
+}
+
+.icon-editor-svg.is-mode-pan:active,
+.icon-editor-svg.is-mode-pan.is-panning,
+.icon-editor-svg.is-mode-draw:active,
+.icon-editor-svg.is-mode-draw.is-panning {
+  cursor: grabbing;
+}
+
+.icon-editor-svg.is-mode-select {
+  cursor: default;
+}
+
+.icon-editor-svg.is-mode-select > * {
+  cursor: move;
+}
+
+.icon-editor-svg.is-mode-select-group {
+  cursor: default;
+}
+
+.icon-editor-svg.is-mode-select-group > * {
+  cursor: move;
+}
+
+.icon-editor-svg.is-mode-select-node,
+.icon-editor-svg.is-mode-select-node > * {
+  cursor: crosshair;
+}
+
+/* Modal Dialogs */
+.draw-modal-dialog {
+  padding: 1.5rem;
+  border: 1px solid var(--fern-border-strong);
+  border-radius: 0.75rem;
+  background: var(--fern-panel);
+  color: var(--fern-text);
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.45);
+  max-width: 480px;
+  width: 90vw;
+}
+
+.draw-modal-dialog::backdrop {
+  background: rgba(4, 9, 14, 0.75);
+  backdrop-filter: blur(2px);
+}
+
+.draw-dialog-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1.25rem;
+}
+
+.draw-dialog-header h2 {
+  margin: 0.2rem 0 0;
+  font-size: 1.25rem;
+  color: var(--fern-accent-pale);
+}
+
+.draw-dialog-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.draw-dialog-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.draw-dialog-row label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: 0.8rem;
+  color: var(--fern-text-soft);
+  flex: 1;
+}
+
+.draw-dialog-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.85rem;
+}
+
+.draw-dialog-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: 0.8rem;
+  color: var(--fern-text-soft);
+}
+
+.draw-range-input {
+  width: 100%;
+  accent-color: var(--fern-accent-pale);
+  cursor: pointer;
+}
+
+.draw-dialog-hint {
+  font-size: 0.78rem;
+  color: var(--fern-text-soft);
+  word-break: break-all;
+}
+
+.draw-dialog-checkbox-row {
+  justify-content: flex-start;
+  gap: 0.75rem;
+}
+
+.draw-dialog-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  cursor: pointer;
+  user-select: none;
+  font-size: 0.82rem;
+}
+
+/* Canvas artwork anchor position grid */
+.draw-anchor-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 30px);
+  grid-template-rows: repeat(3, 30px);
+  gap: 5px;
+  background: rgba(0, 0, 0, 0.25);
+  padding: 6px;
+  border-radius: 6px;
+  border: 1px solid var(--fern-border, rgba(255, 255, 255, 0.1));
+  width: max-content;
+}
+
+.draw-anchor-cell {
+  width: 30px;
+  height: 30px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 4px;
+  cursor: pointer;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s ease, border-color 0.15s ease, transform 0.1s ease;
+}
+
+.draw-anchor-cell::after {
+  content: "";
+  width: 8px;
+  height: 8px;
+  background: var(--fern-text-soft, rgba(255, 255, 255, 0.4));
+  border-radius: 2px;
+  transition: all 0.15s ease;
+}
+
+.draw-anchor-cell:hover {
+  background: rgba(255, 255, 255, 0.14);
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+.draw-anchor-cell:hover::after {
+  background: #ffffff;
+}
+
+.draw-anchor-cell.is-active {
+  background: #4da3ff;
+  border-color: #4da3ff;
+  box-shadow: 0 0 8px rgba(77, 163, 255, 0.4);
+}
+
+.draw-anchor-cell.is-active::after {
+  background: #ffffff;
+  transform: scale(1.3);
 }
 
 @media (max-width: 900px) {

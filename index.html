@@ -39,7 +39,9 @@
 
             <!-- Edit Menu -->
             <div class="site-menu-item has-submenu toolbar-popout">
-              <button class="site-menu-trigger chip-btn" type="button" aria-expanded="false">Edit</button>
+              <button class="site-menu-trigger chip-btn" type="button" aria-expanded="false" title="Edit Menu">
+                Edit ▾
+              </button>
               <ul class="site-submenu">
                 <li class="site-submenu-option" data-action="fern_undo">Undo</li>
                 <li class="site-submenu-option" data-action="fern_redo">Redo</li>
@@ -50,6 +52,9 @@
                 <li class="site-submenu-divider" role="separator"></li>
                 <li class="site-submenu-option" data-action="duplicate">Duplicate selection</li>
                 <li class="site-submenu-option" data-action="delete">Delete selection</li>
+                <li class="site-submenu-divider" role="separator"></li>
+                <li class="site-submenu-option" data-action="open-canvas-dialog">Canvas dimensions…</li>
+                <li class="site-submenu-option" data-action="open-trace-dialog">Trace background image…</li>
               </ul>
             </div>
 
@@ -77,12 +82,18 @@
                     <span>Grid / Transparent Canvas</span>
                   </label>
                 </li>
+                <li class="site-submenu-divider" role="separator"></li>
+                <li class="site-submenu-option" data-action="toggle-trace-image">Toggle trace image</li>
+                <li class="site-submenu-divider" role="separator"></li>
+                <li class="site-submenu-option" data-action="zoom-reset">Reset view (100%)</li>
               </ul>
             </div>
 
             <!-- Help Menu -->
             <div class="site-menu-item has-submenu toolbar-popout">
-              <button class="site-menu-trigger chip-btn" type="button" aria-expanded="false">Help</button>
+              <button class="site-menu-trigger chip-btn" type="button" aria-expanded="false" title="Help Menu">
+                Help ▾
+              </button>
               <ul class="site-submenu">
                 <li class="site-submenu-option" data-action="show-shortcuts">Keyboard shortcuts</li>
                 <li class="site-submenu-option" data-action="show-about">About Phrond Draw</li>
@@ -103,7 +114,7 @@
 
             <!-- Zoom Controls -->
             <button class="chip-btn chip-btn-icon" type="button" data-action="zoom-out" title="Zoom Out">−</button>
-            <button class="chip-btn" type="button" data-action="zoom-fit" title="Fit to Drawing">Fit</button>
+            <button class="chip-btn" type="button" data-action="zoom-reset" title="Reset View (100%)">Reset</button>
             <button class="chip-btn chip-btn-icon" type="button" data-action="zoom-in" title="Zoom In">+</button>
 
             <div class="topbar-color-controls" aria-label="Colors">
@@ -130,6 +141,15 @@
           <div class="site-toolbar-band">
             <div class="site-toolbar">
               <div class="toolbar-group">
+                <span class="field-label">Mode</span>
+                <div class="chip-row">
+                  <button class="chip-btn is-active" type="button" data-mode="select" title="Select shape (V)">Select</button>
+                  <button class="chip-btn" type="button" data-mode="select-group" title="Select group (G)">Select Group</button>
+                  <button class="chip-btn" type="button" data-mode="select-node" title="Select node (A)">Select Node</button>
+                  <button class="chip-btn" type="button" data-mode="pan" title="Pan / Hand tool (H)">Hand</button>
+                </div>
+              </div>
+              <div class="toolbar-group">
                 <span class="field-label">Shapes</span>
                 <div class="chip-row">
                   <button class="chip-btn" type="button" data-add="path" title="Draw Path">Path</button>
@@ -146,7 +166,7 @@
                   <button class="chip-btn chip-btn-icon" type="button" data-align="left" title="Align left" aria-label="Align left">
                     <span class="material-icons" aria-hidden="true">align_horizontal_left</span>
                   </button>
-                  <button class="chip-btn chip-btn-icon" type="button" data-align="center-x" title="Align horizontal centres" aria-label="Align horizontal centres">
+                  <button class="chip-btn chip-btn-icon" type="button" data-align="center-x" title="Align horizontal centers" aria-label="Align horizontal centers">
                     <span class="material-icons" aria-hidden="true">align_horizontal_center</span>
                   </button>
                   <button class="chip-btn chip-btn-icon" type="button" data-align="right" title="Align right" aria-label="Align right">
@@ -155,7 +175,7 @@
                   <button class="chip-btn chip-btn-icon" type="button" data-align="top" title="Align top" aria-label="Align top">
                     <span class="material-icons" aria-hidden="true">align_vertical_top</span>
                   </button>
-                  <button class="chip-btn chip-btn-icon" type="button" data-align="center-y" title="Align vertical centres" aria-label="Align vertical centres">
+                  <button class="chip-btn chip-btn-icon" type="button" data-align="center-y" title="Align vertical centers" aria-label="Align vertical centers">
                     <span class="material-icons" aria-hidden="true">align_vertical_center</span>
                   </button>
                   <button class="chip-btn chip-btn-icon" type="button" data-align="bottom" title="Align bottom" aria-label="Align bottom">
@@ -269,6 +289,106 @@
           </div>
           <p class="subgroup-title">Choose from this set</p>
           <div class="draw-toolbar-color-choices" data-toolbar-color-choices></div>
+        </dialog>
+
+        <!-- Canvas Dimensions Dialog -->
+        <dialog class="draw-modal-dialog draw-canvas-dialog" data-canvas-dialog aria-labelledby="draw-canvas-dialog-title">
+          <div class="draw-dialog-header">
+            <div>
+              <p class="field-label">Viewport &amp; Document</p>
+              <h2 id="draw-canvas-dialog-title">Canvas dimensions</h2>
+            </div>
+            <button class="chip-btn" type="button" data-action="close-canvas-dialog">Close</button>
+          </div>
+          <div class="draw-dialog-body">
+            <div class="draw-dialog-row">
+              <label>Preset
+                <select class="select-pill" data-canvas-preset>
+                  <option value="custom">Custom size</option>
+                  <option value="100x100">100 × 100 (Default Icon)</option>
+                  <option value="24x24">24 × 24 (Small Icon)</option>
+                  <option value="48x48">48 × 48 (Medium Icon)</option>
+                  <option value="256x256">256 × 256 (Square Graphic)</option>
+                  <option value="512x512">512 × 512 (App Icon / Logo)</option>
+                  <option value="800x600">800 × 600 (Standard SVGs)</option>
+                  <option value="1200x630">1200 × 630 (Social Banner)</option>
+                  <option value="1920x1080">1920 × 1080 (HD Artwork)</option>
+                </select>
+              </label>
+            </div>
+            <div class="draw-dialog-grid">
+              <label>Width<input class="select-pill" type="number" data-canvas-width value="100" min="1" max="10000" step="1"></label>
+              <label>Height<input class="select-pill" type="number" data-canvas-height value="100" min="1" max="10000" step="1"></label>
+              <label>Origin X<input class="select-pill" type="number" data-canvas-origin-x value="0" step="1"></label>
+              <label>Origin Y<input class="select-pill" type="number" data-canvas-origin-y value="0" step="1"></label>
+            </div>
+            <div class="draw-dialog-row">
+              <p class="field-label">Artwork anchor position</p>
+              <div class="draw-anchor-grid" data-canvas-anchor-grid role="radiogroup" aria-label="Artwork anchor position">
+                <button type="button" class="draw-anchor-cell" data-anchor="nw" title="Top-Left" aria-label="Top-Left"></button>
+                <button type="button" class="draw-anchor-cell" data-anchor="n" title="Top-Center" aria-label="Top-Center"></button>
+                <button type="button" class="draw-anchor-cell" data-anchor="ne" title="Top-Right" aria-label="Top-Right"></button>
+                <button type="button" class="draw-anchor-cell" data-anchor="w" title="Center-Left" aria-label="Center-Left"></button>
+                <button type="button" class="draw-anchor-cell is-active" data-anchor="c" title="Center" aria-label="Center"></button>
+                <button type="button" class="draw-anchor-cell" data-anchor="e" title="Center-Right" aria-label="Center-Right"></button>
+                <button type="button" class="draw-anchor-cell" data-anchor="sw" title="Bottom-Left" aria-label="Bottom-Left"></button>
+                <button type="button" class="draw-anchor-cell" data-anchor="s" title="Bottom-Center" aria-label="Bottom-Center"></button>
+                <button type="button" class="draw-anchor-cell" data-anchor="se" title="Bottom-Right" aria-label="Bottom-Right"></button>
+              </div>
+            </div>
+          </div>
+          <div class="draw-dialog-actions">
+            <button class="chip-btn chip-btn-primary" type="button" data-action="apply-canvas-dimensions">Apply</button>
+            <button class="chip-btn" type="button" data-action="fit-canvas-to-shapes">Fit to artwork</button>
+            <button class="chip-btn" type="button" data-action="close-canvas-dialog">Cancel</button>
+          </div>
+        </dialog>
+
+        <!-- Trace Background Image Dialog -->
+        <dialog class="draw-modal-dialog draw-trace-dialog" data-trace-dialog aria-labelledby="draw-trace-dialog-title">
+          <div class="draw-dialog-header">
+            <div>
+              <p class="field-label">Reference Backdrop</p>
+              <h2 id="draw-trace-dialog-title">Trace background image</h2>
+            </div>
+            <button class="chip-btn" type="button" data-action="close-trace-dialog">Close</button>
+          </div>
+          <div class="draw-dialog-body">
+            <div class="draw-dialog-row">
+              <input type="file" accept="image/*" data-trace-file-input hidden>
+              <button class="chip-btn chip-btn-primary" type="button" data-action="pick-trace-file">Choose image file…</button>
+              <span class="draw-dialog-hint" data-trace-file-name>No file chosen</span>
+            </div>
+            <div class="draw-dialog-row">
+              <label>Or image URL
+                <input class="select-pill" type="url" data-trace-url-input placeholder="https://example.com/image.png" spellcheck="false">
+              </label>
+              <button class="chip-btn" type="button" data-action="load-trace-url">Load URL</button>
+            </div>
+            <hr class="draw-color-dialog-rule">
+            <div class="draw-dialog-grid">
+              <label>Opacity (<span data-trace-opacity-val>40</span>%)
+                <input class="draw-range-input" type="range" min="0" max="100" value="40" data-trace-opacity>
+              </label>
+              <label>Scale (<span data-trace-scale-val>100</span>%)
+                <input class="draw-range-input" type="range" min="10" max="400" value="100" data-trace-scale>
+              </label>
+              <label>Offset X<input class="select-pill" type="number" data-trace-pos-x value="0" step="1"></label>
+              <label>Offset Y<input class="select-pill" type="number" data-trace-pos-y value="0" step="1"></label>
+            </div>
+            <div class="draw-dialog-row draw-dialog-checkbox-row">
+              <label class="checkbox-label">
+                <input type="checkbox" data-trace-visible-check checked>
+                <span>Show trace image</span>
+              </label>
+              <button class="chip-btn" type="button" data-action="center-trace-image">Center on canvas</button>
+              <button class="chip-btn" type="button" data-action="fit-trace-to-canvas">Fit to canvas</button>
+              <button class="chip-btn chip-btn-danger" type="button" data-action="remove-trace-image">Remove image</button>
+            </div>
+          </div>
+          <div class="draw-dialog-actions">
+            <button class="chip-btn chip-btn-primary" type="button" data-action="close-trace-dialog">Done</button>
+          </div>
         </dialog>
       </main>
       <footer class="site-footer">

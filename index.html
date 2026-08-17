@@ -227,6 +227,7 @@
               <p class="field-label">Account library</p>
               <h2 id="draw-color-dialog-title">Edit colors</h2>
             </div>
+            <button class="chip-btn chip-btn-icon" type="button" data-action="color-dialog-cancel" aria-label="Close dialog" title="Close">✕</button>
           </div>
           <div class="draw-color-editor-layout">
             <section>
@@ -275,7 +276,7 @@
               <p class="field-label">Drawing color</p>
               <h2 id="draw-toolbar-color-dialog-title">Edit Fill color</h2>
             </div>
-            <button class="chip-btn" type="button" data-action="close-toolbar-color-editor">Close</button>
+            <button class="chip-btn chip-btn-icon" type="button" data-action="close-toolbar-color-editor" aria-label="Close dialog" title="Close">✕</button>
           </div>
           <div class="draw-toolbar-color-controls">
             <div class="draw-color-picker-group">
@@ -298,7 +299,7 @@
               <p class="field-label">Viewport &amp; Document</p>
               <h2 id="draw-canvas-dialog-title">Canvas dimensions</h2>
             </div>
-            <button class="chip-btn" type="button" data-action="close-canvas-dialog">Close</button>
+            <button class="chip-btn chip-btn-icon" type="button" data-action="close-canvas-dialog" aria-label="Close dialog" title="Close">✕</button>
           </div>
           <div class="draw-dialog-body">
             <div class="draw-dialog-row">
@@ -351,7 +352,7 @@
               <p class="field-label">Reference Backdrop</p>
               <h2 id="draw-trace-dialog-title">Trace background image</h2>
             </div>
-            <button class="chip-btn" type="button" data-action="close-trace-dialog">Close</button>
+            <button class="chip-btn chip-btn-icon" type="button" data-action="close-trace-dialog" aria-label="Close dialog" title="Close">✕</button>
           </div>
           <div class="draw-dialog-body">
             <div class="draw-dialog-row">
@@ -359,29 +360,39 @@
               <button class="chip-btn chip-btn-primary" type="button" data-action="pick-trace-file">Choose image file…</button>
               <span class="draw-dialog-hint" data-trace-file-name>No file chosen</span>
             </div>
-            <div class="draw-dialog-row">
-              <label>Or image URL
+            <div class="draw-dialog-row draw-dialog-url-row">
+              <label>
+                <span>Or image URL</span>
                 <input class="select-pill" type="url" data-trace-url-input placeholder="https://example.com/image.png" spellcheck="false">
               </label>
               <button class="chip-btn" type="button" data-action="load-trace-url">Load URL</button>
             </div>
             <hr class="draw-color-dialog-rule">
             <div class="draw-dialog-grid">
-              <label>Opacity (<span data-trace-opacity-val>40</span>%)
+              <label>
+                <span>Opacity (<span data-trace-opacity-val>40</span>%)</span>
                 <input class="draw-range-input" type="range" min="0" max="100" value="40" data-trace-opacity>
               </label>
-              <label>Scale (<span data-trace-scale-val>100</span>%)
+              <label>
+                <span>Scale (<span data-trace-scale-val>100</span>%)</span>
                 <input class="draw-range-input" type="range" min="10" max="400" value="100" data-trace-scale>
               </label>
-              <label>Offset X<input class="select-pill" type="number" data-trace-pos-x value="0" step="1"></label>
-              <label>Offset Y<input class="select-pill" type="number" data-trace-pos-y value="0" step="1"></label>
             </div>
-            <div class="draw-dialog-row draw-dialog-checkbox-row">
-              <label class="checkbox-label">
-                <input type="checkbox" data-trace-visible-check checked>
-                <span>Show trace image</span>
-              </label>
-              <button class="chip-btn" type="button" data-action="center-trace-image">Center on canvas</button>
+            <div class="draw-dialog-row">
+              <p class="field-label">Backdrop position</p>
+              <div class="draw-anchor-grid" data-trace-anchor-grid role="radiogroup" aria-label="Backdrop position">
+                <button type="button" class="draw-anchor-cell" data-trace-anchor="nw" title="Top-Left" aria-label="Top-Left"></button>
+                <button type="button" class="draw-anchor-cell" data-trace-anchor="n" title="Top-Center" aria-label="Top-Center"></button>
+                <button type="button" class="draw-anchor-cell" data-trace-anchor="ne" title="Top-Right" aria-label="Top-Right"></button>
+                <button type="button" class="draw-anchor-cell" data-trace-anchor="w" title="Center-Left" aria-label="Center-Left"></button>
+                <button type="button" class="draw-anchor-cell is-active" data-trace-anchor="c" title="Center" aria-label="Center"></button>
+                <button type="button" class="draw-anchor-cell" data-trace-anchor="e" title="Center-Right" aria-label="Center-Right"></button>
+                <button type="button" class="draw-anchor-cell" data-trace-anchor="sw" title="Bottom-Left" aria-label="Bottom-Left"></button>
+                <button type="button" class="draw-anchor-cell" data-trace-anchor="s" title="Bottom-Center" aria-label="Bottom-Center"></button>
+                <button type="button" class="draw-anchor-cell" data-trace-anchor="se" title="Bottom-Right" aria-label="Bottom-Right"></button>
+              </div>
+            </div>
+            <div class="draw-dialog-row draw-dialog-actions-row">
               <button class="chip-btn" type="button" data-action="fit-trace-to-canvas">Fit to canvas</button>
               <button class="chip-btn chip-btn-danger" type="button" data-action="remove-trace-image">Remove image</button>
             </div>

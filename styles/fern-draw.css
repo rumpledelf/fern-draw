@@ -678,9 +678,8 @@ input[type="range"] {
   min-width: 0;
 }
 
-.toolbar-group .field-label {
+.field-label {
   display: block;
-  padding-left: 0.25rem;
   color: var(--fern-text-soft);
   font-size: 0.62rem;
   font-weight: 700;
@@ -688,6 +687,10 @@ input[type="range"] {
   line-height: 1;
   text-transform: uppercase;
   white-space: nowrap;
+}
+
+.toolbar-group .field-label {
+  padding-left: 0.25rem;
 }
 
 .site-toolbar .chip-btn {
@@ -757,10 +760,17 @@ input[type="range"] {
   background: rgba(0, 0, 0, 0.62);
 }
 
-.draw-color-dialog-header,
+.draw-color-dialog-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
 .draw-color-dialog-actions {
   display: flex;
-  align-items: end;
+  align-items: center;
   justify-content: space-between;
   gap: 0.75rem;
 }
@@ -977,9 +987,10 @@ input[type="range"] {
 
 .draw-toolbar-color-dialog-header {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 0.75rem;
+  margin-bottom: 1rem;
 }
 
 .draw-toolbar-color-dialog h2 {
@@ -1637,6 +1648,29 @@ input[type="range"] {
   font-weight: 700;
 }
 
+.sidebar-action-line {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  margin-bottom: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.sidebar-inline-num {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.75rem;
+  color: var(--fern-text-soft);
+  font-weight: 600;
+}
+
+.select-pill-sm {
+  width: 4.2rem;
+  padding: 0.25rem 0.45rem;
+  text-align: center;
+}
+
 .svg-editor-empty {
   margin: 0;
   color: var(--fern-text-soft);
@@ -1803,9 +1837,16 @@ input[type="range"] {
   word-break: break-all;
 }
 
-.draw-dialog-checkbox-row {
-  justify-content: flex-start;
-  gap: 0.75rem;
+.draw-dialog-url-row {
+  align-items: flex-end;
+}
+
+.draw-dialog-actions-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  padding-top: 0.25rem;
 }
 
 .draw-dialog-actions {

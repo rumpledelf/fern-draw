@@ -50,6 +50,9 @@ function fern_loadAutoSavedDraft() {
     if (payload && payload.content && payload.content.trim().length > 0) {
       if (payload.traceBackdrop) {
         fernTraceBackdrop = { ...fernTraceBackdrop, ...payload.traceBackdrop };
+        if (payload.traceBackdrop.anchor) {
+          fernTraceActiveAnchor = payload.traceBackdrop.anchor;
+        }
       }
       fern_loadLocalSvg(payload.content, payload.fileName || "untitled.svg");
       if (typeof payload.zoom === "number") {
@@ -100,6 +103,7 @@ let fernTraceBackdrop = {
   y: 0,
   visible: true,
 };
+let fernTraceActiveAnchor = "c";
 let fernCurrentFileName = "untitled.svg";
 let fernLocalFileHandle = null;
 let fernOriginalSvgContent = FERN_EMPTY_SVG;
@@ -232,6 +236,19 @@ function fern_loadTraceBackdrop() {
     const saved = JSON.parse(raw);
     if (saved && typeof saved === "object") {
       fernTraceBackdrop = { ...fernTraceBackdrop, ...saved };
+      if (saved.anchor) {
+        fernTraceActiveAnchor = saved.anchor;
+      }
+      if (fernTraceBackdrop.url) {
+        const tempImg = new Image();
+        tempImg.onload = () => {
+          fernTraceBackdrop.naturalWidth = tempImg.naturalWidth;
+          fernTraceBackdrop.naturalHeight = tempImg.naturalHeight;
+          fern_renderTraceBackdrop();
+          fern_renderInspector();
+        };
+        tempImg.src = fernTraceBackdrop.url;
+      }
       return true;
     }
   } catch (_e) {}
@@ -274,13 +291,27 @@ function fern_renderTraceBackdrop() {
     backdropGroup.appendChild(img);
   }
 
+  const preserveAspectMap = {
+    nw: "xMinYMin meet",
+    n: "xMidYMin meet",
+    ne: "xMaxYMin meet",
+    w: "xMinYMid meet",
+    c: "xMidYMid meet",
+    e: "xMaxYMid meet",
+    sw: "xMinYMax meet",
+    s: "xMidYMax meet",
+    se: "xMaxYMax meet",
+  };
+  const currentAnchor = fernTraceActiveAnchor || fernTraceBackdrop.anchor || "c";
+  const aspectMode = preserveAspectMap[currentAnchor] || "xMidYMid meet";
+
   img.setAttribute("href", fernTraceBackdrop.url);
   img.setAttribute("x", fern_formatNumber(x));
   img.setAttribute("y", fern_formatNumber(y));
   img.setAttribute("width", fern_formatNumber(width));
   img.setAttribute("height", fern_formatNumber(height));
   img.setAttribute("opacity", fern_formatNumber(opacity));
-  img.setAttribute("preserveAspectRatio", "xMidYMid meet");
+  img.setAttribute("preserveAspectRatio", aspectMode);
   img.setAttribute("pointer-events", "none");
 }
 
@@ -1754,16 +1785,26 @@ function fern_renderInspector() {
 
   if (!fernSelectedElement) {
     const viewBox = fern_getViewBox();
+    const hasBackdrop = Boolean(fernTraceBackdrop.url && fernTraceBackdrop.visible !== false);
     inspector.innerHTML = `
       <div class="field-label">Document &amp; Canvas</div>
-      <div class="svg-editor-selected" style="margin-bottom: 0.75rem;">
+      <div class="sidebar-action-line">
+        <button class="chip-btn chip-btn-primary" type="button" data-action="open-canvas-dialog">Resize canvas…</button>
         <span class="element-tag-badge">${viewBox.width} × ${viewBox.height} px</span>
       </div>
-      <p class="svg-editor-empty" style="margin-bottom: 0.85rem;">Select a shape to inspect properties, or resize canvas below.</p>
-      <div class="chip-row">
-        <button class="chip-btn chip-btn-primary" type="button" data-action="open-canvas-dialog">Resize canvas…</button>
+      <div class="sidebar-action-line" style="margin-bottom: ${hasBackdrop ? '0.75rem' : '0.85rem'};">
         <button class="chip-btn" type="button" data-action="open-trace-dialog">Trace backdrop…</button>
       </div>
+      ${hasBackdrop ? `
+        <div class="sidebar-backdrop-offset-section" style="margin-bottom: 0.85rem;">
+          <span class="field-label" style="margin-bottom: 0.35rem;">Backdrop offset</span>
+          <div class="inspector-grid">
+            <label><span>X</span><input class="select-pill" type="number" data-sidebar-trace-x value="${fernTraceBackdrop.x || 0}" step="1"></label>
+            <label><span>Y</span><input class="select-pill" type="number" data-sidebar-trace-y value="${fernTraceBackdrop.y || 0}" step="1"></label>
+          </div>
+        </div>
+      ` : ""}
+      <p class="svg-editor-empty">Select a shape to inspect properties.</p>
     `;
     return;
   }
@@ -4131,6 +4172,7 @@ function fern_importSvg(content) {
   }
 
   fern_renderGrid();
+  fern_renderTraceBackdrop();
   fern_applyZoom();
   fernActiveSvg.addEventListener("pointerdown", fern_handlePointerDown);
   fernActiveSvg.addEventListener("pointermove", fern_handlePointerMove);
@@ -4390,22 +4432,96 @@ function fern_fitCanvasToArtwork() {
   fern_setEditorStatus(`Canvas fitted to artwork: ${newW} × ${newH}.`);
 }
 
+function fern_setTraceAnchor(anchor) {
+  fernTraceActiveAnchor = anchor;
+  const dialog = fernEditor.querySelector("[data-trace-dialog]");
+  if (dialog) {
+    for (const cell of dialog.querySelectorAll("[data-trace-anchor]")) {
+      cell.classList.toggle("is-active", cell.dataset.traceAnchor === anchor);
+    }
+  }
+  fern_recalculateTraceOrigin(anchor);
+}
+
+function fern_recalculateTraceOrigin(anchor = fernTraceActiveAnchor || "c") {
+  fernTraceActiveAnchor = anchor;
+  fernTraceBackdrop.anchor = anchor;
+  const viewBox = fern_getViewBox();
+  const scaleRatio = (fernTraceBackdrop.scale || 100) / 100;
+  const W = viewBox.width;
+  const H = viewBox.height;
+
+  let x = 0;
+  let y = 0;
+
+  const nw = fernTraceBackdrop.naturalWidth || 0;
+  const nh = fernTraceBackdrop.naturalHeight || 0;
+
+  if (nw > 0 && nh > 0) {
+    const imgRatio = nw / nh;
+    const canvasRatio = W / H;
+
+    let fittedW = W * scaleRatio;
+    let fittedH = H * scaleRatio;
+
+    if (imgRatio > canvasRatio) {
+      fittedH = (W / imgRatio) * scaleRatio;
+    } else {
+      fittedW = (H * imgRatio) * scaleRatio;
+    }
+
+    const dw = W - fittedW;
+    const dh = H - fittedH;
+
+    if (anchor === "nw" || anchor === "w" || anchor === "sw") {
+      x = 0;
+    } else if (anchor === "n" || anchor === "c" || anchor === "s") {
+      x = Math.round(dw / 2);
+    } else if (anchor === "ne" || anchor === "e" || anchor === "se") {
+      x = Math.round(dw);
+    }
+
+    if (anchor === "nw" || anchor === "n" || anchor === "ne") {
+      y = 0;
+    } else if (anchor === "w" || anchor === "c" || anchor === "e") {
+      y = Math.round(dh / 2);
+    } else if (anchor === "sw" || anchor === "s" || anchor === "se") {
+      y = Math.round(dh);
+    }
+  } else {
+    const imgW = W * scaleRatio;
+    const imgH = H * scaleRatio;
+    const dw = W - imgW;
+    const dh = H - imgH;
+
+    if (anchor === "nw") { x = 0; y = 0; }
+    else if (anchor === "n") { x = Math.round(dw / 2); y = 0; }
+    else if (anchor === "ne") { x = Math.round(dw); y = 0; }
+    else if (anchor === "w") { x = 0; y = Math.round(dh / 2); }
+    else if (anchor === "c") { x = Math.round(dw / 2); y = Math.round(dh / 2); }
+    else if (anchor === "e") { x = Math.round(dw); y = Math.round(dh / 2); }
+    else if (anchor === "sw") { x = 0; y = Math.round(dh); }
+    else if (anchor === "s") { x = Math.round(dw / 2); y = Math.round(dh); }
+    else if (anchor === "se") { x = Math.round(dw); y = Math.round(dh); }
+  }
+
+  fernTraceBackdrop.x = x;
+  fernTraceBackdrop.y = y;
+  fern_renderTraceBackdrop();
+  fern_saveTraceBackdrop();
+  fern_renderInspector();
+}
+
 function fern_openTraceDialog() {
   const dialog = fernEditor.querySelector("[data-trace-dialog]");
   if (!dialog) return;
   const opacityInput = dialog.querySelector("[data-trace-opacity]");
   const scaleInput = dialog.querySelector("[data-trace-scale]");
-  const posXInput = dialog.querySelector("[data-trace-pos-x]");
-  const posYInput = dialog.querySelector("[data-trace-pos-y]");
-  const visibleCheck = dialog.querySelector("[data-trace-visible-check]");
   const hint = dialog.querySelector("[data-trace-file-name]");
   const urlInput = dialog.querySelector("[data-trace-url-input]");
 
   if (opacityInput) opacityInput.value = fernTraceBackdrop.opacity ?? 40;
   if (scaleInput) scaleInput.value = fernTraceBackdrop.scale ?? 100;
-  if (posXInput) posXInput.value = fernTraceBackdrop.x ?? 0;
-  if (posYInput) posYInput.value = fernTraceBackdrop.y ?? 0;
-  if (visibleCheck) visibleCheck.checked = fernTraceBackdrop.visible !== false;
   if (urlInput && !fernTraceBackdrop.url.startsWith("data:")) urlInput.value = fernTraceBackdrop.url || "";
   if (hint) {
     hint.textContent = fernTraceBackdrop.url ? (fernTraceBackdrop.url.startsWith("data:") ? "Image loaded" : fernTraceBackdrop.url.slice(-30)) : "No image loaded";
@@ -4414,6 +4530,10 @@ function fern_openTraceDialog() {
   if (opReadout) opReadout.textContent = fernTraceBackdrop.opacity ?? 40;
   const scReadout = dialog.querySelector("[data-trace-scale-val]");
   if (scReadout) scReadout.textContent = fernTraceBackdrop.scale ?? 100;
+
+  for (const cell of dialog.querySelectorAll("[data-trace-anchor]")) {
+    cell.classList.toggle("is-active", cell.dataset.traceAnchor === (fernTraceActiveAnchor || "c"));
+  }
 
   if (typeof dialog.showModal === "function") {
     dialog.showModal();
@@ -4432,6 +4552,7 @@ function fern_closeTraceDialog() {
   }
   fern_saveTraceBackdrop();
   fern_autoSaveLocal();
+  fern_renderInspector();
 }
 
 function fern_handleTraceFile(file) {
@@ -4440,9 +4561,18 @@ function fern_handleTraceFile(file) {
   reader.onload = (e) => {
     fernTraceBackdrop.url = e.target.result;
     fernTraceBackdrop.visible = true;
+    const tempImg = new Image();
+    tempImg.onload = () => {
+      fernTraceBackdrop.naturalWidth = tempImg.naturalWidth;
+      fernTraceBackdrop.naturalHeight = tempImg.naturalHeight;
+      fern_setTraceAnchor(fernTraceActiveAnchor || "c");
+    };
+    tempImg.src = e.target.result;
+    fern_setTraceAnchor(fernTraceActiveAnchor || "c");
     fern_renderTraceBackdrop();
     fern_saveTraceBackdrop();
     fern_autoSaveLocal();
+    fern_renderInspector();
     const hint = fernEditor.querySelector("[data-trace-file-name]");
     if (hint) hint.textContent = file.name;
     fern_setEditorStatus(`Loaded trace reference: ${file.name}`);
@@ -4455,34 +4585,21 @@ function fern_toggleTraceBackdrop() {
   fern_renderTraceBackdrop();
   fern_saveTraceBackdrop();
   fern_autoSaveLocal();
+  fern_renderInspector();
   fern_setEditorStatus(fernTraceBackdrop.visible ? "Trace backdrop visible." : "Trace backdrop hidden.");
 }
 
 function fern_centerTraceBackdrop() {
-  fernTraceBackdrop.x = 0;
-  fernTraceBackdrop.y = 0;
-  fern_renderTraceBackdrop();
-  const posX = fernEditor.querySelector("[data-trace-pos-x]");
-  const posY = fernEditor.querySelector("[data-trace-pos-y]");
-  if (posX) posX.value = 0;
-  if (posY) posY.value = 0;
-  fern_saveTraceBackdrop();
+  fern_setTraceAnchor("c");
 }
 
 function fern_fitTraceBackdropToCanvas() {
   fernTraceBackdrop.scale = 100;
-  fernTraceBackdrop.x = 0;
-  fernTraceBackdrop.y = 0;
-  fern_renderTraceBackdrop();
   const scale = fernEditor.querySelector("[data-trace-scale]");
-  const posX = fernEditor.querySelector("[data-trace-pos-x]");
-  const posY = fernEditor.querySelector("[data-trace-pos-y]");
   if (scale) scale.value = 100;
-  if (posX) posX.value = 0;
-  if (posY) posY.value = 0;
   const scReadout = fernEditor.querySelector("[data-trace-scale-val]");
   if (scReadout) scReadout.textContent = "100";
-  fern_saveTraceBackdrop();
+  fern_setTraceAnchor("c");
 }
 
 function fern_removeTraceBackdrop() {
@@ -4490,6 +4607,7 @@ function fern_removeTraceBackdrop() {
   fern_renderTraceBackdrop();
   fern_saveTraceBackdrop();
   fern_autoSaveLocal();
+  fern_renderInspector();
   const hint = fernEditor.querySelector("[data-trace-file-name]");
   if (hint) hint.textContent = "No file chosen";
   const urlInput = fernEditor.querySelector("[data-trace-url-input]");
@@ -4788,23 +4906,28 @@ async function fern_setupEditor() {
       const valSpan = fernEditor.querySelector("[data-trace-opacity-val]");
       if (valSpan) valSpan.textContent = traceOpacity.value;
       fern_renderTraceBackdrop();
+      fern_saveTraceBackdrop();
     }
     const traceScale = event.target.closest("[data-trace-scale]");
     if (traceScale) {
       fernTraceBackdrop.scale = Number.parseInt(traceScale.value, 10);
       const valSpan = fernEditor.querySelector("[data-trace-scale-val]");
       if (valSpan) valSpan.textContent = traceScale.value;
-      fern_renderTraceBackdrop();
+      fern_recalculateTraceOrigin();
     }
-    const traceX = event.target.closest("[data-trace-pos-x]");
-    if (traceX) {
-      fernTraceBackdrop.x = Number.parseInt(traceX.value, 10) || 0;
+    const sidebarTraceX = event.target.closest("[data-sidebar-trace-x]");
+    if (sidebarTraceX) {
+      fernTraceBackdrop.x = Number.parseInt(sidebarTraceX.value, 10) || 0;
       fern_renderTraceBackdrop();
+      fern_saveTraceBackdrop();
+      fern_autoSaveLocal();
     }
-    const traceY = event.target.closest("[data-trace-pos-y]");
-    if (traceY) {
-      fernTraceBackdrop.y = Number.parseInt(traceY.value, 10) || 0;
+    const sidebarTraceY = event.target.closest("[data-sidebar-trace-y]");
+    if (sidebarTraceY) {
+      fernTraceBackdrop.y = Number.parseInt(sidebarTraceY.value, 10) || 0;
       fern_renderTraceBackdrop();
+      fern_saveTraceBackdrop();
+      fern_autoSaveLocal();
     }
     const paletteHex = event.target.closest("[data-palette-hex]");
     if (paletteHex && /^#[0-9a-fA-F]{6}$/.test(paletteHex.value.trim())) {
@@ -5020,7 +5143,11 @@ async function fern_setupEditor() {
     const toolbarChoiceButton = event.target.closest("[data-toolbar-color-choice]");
 
     if (anchorCell) {
-      fern_setCanvasAnchor(anchorCell.dataset.anchor);
+      if (anchorCell.dataset.traceAnchor) {
+        fern_setTraceAnchor(anchorCell.dataset.traceAnchor);
+      } else if (anchorCell.dataset.anchor) {
+        fern_setCanvasAnchor(anchorCell.dataset.anchor);
+      }
     } else if (modeButton) {
       fern_setEditorMode(modeButton.dataset.mode);
     } else if (canvasBgButton && canvasBgButton.tagName === "BUTTON") {
@@ -5120,10 +5247,20 @@ async function fern_setupEditor() {
     } else if (actionButton && actionButton.dataset.action === "load-trace-url") {
       const urlInput = fernEditor.querySelector("[data-trace-url-input]");
       if (urlInput && urlInput.value.trim()) {
-        fernTraceBackdrop.url = urlInput.value.trim();
+        const urlVal = urlInput.value.trim();
+        fernTraceBackdrop.url = urlVal;
         fernTraceBackdrop.visible = true;
+        const tempImg = new Image();
+        tempImg.onload = () => {
+          fernTraceBackdrop.naturalWidth = tempImg.naturalWidth;
+          fernTraceBackdrop.naturalHeight = tempImg.naturalHeight;
+          fern_setTraceAnchor(fernTraceActiveAnchor || "c");
+        };
+        tempImg.src = urlVal;
+        fern_setTraceAnchor(fernTraceActiveAnchor || "c");
         fern_renderTraceBackdrop();
         fern_saveTraceBackdrop();
+        fern_renderInspector();
         const hint = fernEditor.querySelector("[data-trace-file-name]");
         if (hint) hint.textContent = fernTraceBackdrop.url.slice(-30);
         fern_setEditorStatus("Loaded trace reference URL.");

@@ -12,6 +12,7 @@ const FERN_PALETTE_STORAGE_KEY = "fern_draw_palette_v1";
 const FERN_TOOLBAR_COLORS_STORAGE_KEY = "fern_draw_toolbar_colors_v1";
 const FERN_LOADED_COLOR_SET_STORAGE_KEY = "fern_draw_loaded_color_set_v1";
 const FERN_TRACE_BACKDROP_KEY = "fern_draw_trace_backdrop_v1";
+const FERN_DEFAULT_BLANK_ZOOM = 0.6;
 
 function fern_autoSaveLocal() {
   if (!fernActiveSvg) {
@@ -57,6 +58,10 @@ function fern_loadAutoSavedDraft() {
       fern_loadLocalSvg(payload.content, payload.fileName || "untitled.svg");
       if (typeof payload.zoom === "number") {
         fernZoomLevel = Math.max(0.25, Math.min(6, payload.zoom));
+        fern_applyZoom();
+      }
+      if (fern_editableElements().length === 0 && fernZoomLevel < FERN_DEFAULT_BLANK_ZOOM) {
+        fernZoomLevel = FERN_DEFAULT_BLANK_ZOOM;
         fern_applyZoom();
       }
       if (payload.mode) {
@@ -105,6 +110,8 @@ let fernTraceBackdrop = {
 };
 let fernTraceActiveAnchor = "c";
 let fernCurrentFileName = "untitled.svg";
+let fernAccountAssetId = null;
+let fernPendingNamedSave = null;
 let fernLocalFileHandle = null;
 let fernOriginalSvgContent = FERN_EMPTY_SVG;
 let fernDragState = null;
@@ -1367,6 +1374,8 @@ function fern_renderColorSetAccess() {
   const controls = fernEditor.querySelector("[data-color-set-account-controls]");
   const loginMessage = fernEditor.querySelector("[data-color-set-login-message]");
   const saveAccount = fernEditor.querySelector("[data-color-set-save-account]");
+  const accountLink = document.querySelector("[data-draw-account-link]");
+  const accountActions = fernEditor.querySelectorAll("[data-account-action]");
   if (controls) {
     controls.hidden = !fernSessionAuthenticated;
   }
@@ -1376,8 +1385,12 @@ function fern_renderColorSetAccess() {
   if (saveAccount) {
     saveAccount.hidden = !fernSessionAuthenticated;
   }
-  fernEditor.querySelectorAll("[data-account-only]").forEach((element) => {
-    element.hidden = !fernSessionAuthenticated;
+  if (accountLink) {
+    accountLink.hidden = !fernSessionAuthenticated;
+  }
+  accountActions.forEach((element) => {
+    element.classList.toggle("is-disabled", !fernSessionAuthenticated);
+    element.setAttribute("aria-disabled", String(!fernSessionAuthenticated));
   });
 }
 
@@ -4187,7 +4200,50 @@ function fern_setCurrentFile(fernName, fernHandle = null) {
   const fernLabel = fernEditor.querySelector("[data-current-file]");
   if (fernLabel) {
     fernLabel.textContent = fernCurrentFileName;
+    fernLabel.classList.toggle("is-unnamed", fernCurrentFileName === "untitled.svg");
   }
+}
+
+function fern_openFileNameDialog(pendingAction = null) {
+  const dialog = fernEditor.querySelector("[data-file-name-dialog]");
+  const input = fernEditor.querySelector("[data-file-name-input]");
+  if (!dialog || !input) return;
+  fernPendingNamedSave = pendingAction;
+  input.value = fernCurrentFileName;
+  dialog.showModal();
+  requestAnimationFrame(() => {
+    input.focus();
+    input.select();
+  });
+}
+
+function fern_closeFileNameDialog() {
+  const dialog = fernEditor.querySelector("[data-file-name-dialog]");
+  fernPendingNamedSave = null;
+  dialog?.close();
+}
+
+function fern_commitFileName() {
+  const input = fernEditor.querySelector("[data-file-name-input]");
+  const rawName = input?.value.trim() || "";
+  if (!rawName || rawName === "untitled.svg") {
+    input?.focus();
+    fern_setEditorStatus("Choose a name for this drawing before saving.");
+    return;
+  }
+  const name = /\.svg$/i.test(rawName) ? rawName : `${rawName}.svg`;
+  const pendingAction = fernPendingNamedSave;
+  fernPendingNamedSave = null;
+  fern_setCurrentFile(name, null);
+  fernEditor.querySelector("[data-file-name-dialog]")?.close();
+  if (pendingAction === "computer") fern_saveSvg();
+  if (pendingAction === "account") fern_saveSvgToAccount();
+}
+
+function fern_requireFileName(action) {
+  if (fernCurrentFileName !== "untitled.svg") return true;
+  fern_openFileNameDialog(action);
+  return false;
 }
 
 function fern_loadLocalSvg(fernContent, fernName, fernHandle = null) {
@@ -4199,6 +4255,22 @@ function fern_loadLocalSvg(fernContent, fernName, fernHandle = null) {
   fern_updateHistoryControls();
   fern_autoSaveLocal();
   fern_setEditorStatus(fernCurrentFileName);
+}
+
+async function fern_loadAccountAssetFromUrl() {
+  const assetId = new URLSearchParams(window.location.search).get("asset");
+  if (!assetId) return false;
+  const listResponse = await fetch("/account/assets/", { credentials: "same-origin", headers: { Accept: "application/json" } });
+  if (!listResponse.ok) return false;
+  const listPayload = await listResponse.json();
+  const asset = (listPayload.assets || []).find((item) => item.id === assetId);
+  if (!asset) return false;
+  const response = await fetch(`/account/assets/${assetId}/`, { credentials: "same-origin" });
+  if (!response.ok) return false;
+  fernAccountAssetId = assetId;
+  fern_loadLocalSvg(await response.text(), asset.logical_name || "untitled.svg");
+  fern_setEditorStatus(`Opened ${asset.logical_name || "drawing"} from your account library.`);
+  return true;
 }
 
 function fern_newSvg() {
@@ -4662,6 +4734,37 @@ async function fern_saveSvg() {
   fern_setEditorStatus(`Saved ${fernCurrentFileName} to your computer.`);
 }
 
+async function fern_copySvgToClipboard() {
+  if (!fernActiveSvg) {
+    return;
+  }
+  if (!navigator.clipboard || !navigator.clipboard.writeText) {
+    fern_setEditorStatus("This browser cannot copy SVG text to the clipboard.");
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(fern_cleanForSave());
+    fern_setEditorStatus("Copied SVG to clipboard.");
+  } catch (fernError) {
+    fern_setEditorStatus(fernError.message || "Could not copy SVG to the clipboard.");
+  }
+}
+
+function fern_uniqueAccountFileName(fileName, assets) {
+  const existingNames = new Set((Array.isArray(assets) ? assets : [])
+    .map((asset) => String(asset?.logical_name || "").toLowerCase()));
+  if (!existingNames.has(fileName.toLowerCase())) return fileName;
+  const extension = /\.svg$/i.test(fileName) ? ".svg" : "";
+  const stem = extension ? fileName.slice(0, -extension.length) : fileName;
+  let suffix = 2;
+  let candidate = `${stem} (${suffix})${extension}`;
+  while (existingNames.has(candidate.toLowerCase())) {
+    suffix += 1;
+    candidate = `${stem} (${suffix})${extension}`;
+  }
+  return candidate;
+}
+
 async function fern_saveSvgToAccount() {
   if (!fernActiveSvg) {
     return;
@@ -4680,8 +4783,11 @@ async function fern_saveSvgToAccount() {
     if (csrfResponse.redirected || !csrfResponse.ok || csrfContentType.indexOf("application/json") === -1) {
       throw new Error("Log into your account to save SVGs to your account.");
     }
-    const response = await fetch("/account/assets/", {
-      method: "POST",
+    const accountAssetsPayload = await csrfResponse.json();
+    const accountFileName = fernCurrentFileName;
+    const accountUrl = fernAccountAssetId ? `/account/assets/${fernAccountAssetId}/` : "/account/assets/";
+    const response = await fetch(accountUrl, {
+      method: fernAccountAssetId ? "PUT" : "POST",
       credentials: "same-origin",
       headers: {
         "Content-Type": "application/json",
@@ -4689,7 +4795,7 @@ async function fern_saveSvgToAccount() {
         "X-CSRFToken": decodeURIComponent(fern_getCookie("csrftoken")),
       },
       body: JSON.stringify({
-        logical_name: fernCurrentFileName,
+        logical_name: accountFileName,
         content: fern_cleanForSave(),
         mime_type: "image/svg+xml",
       }),
@@ -4698,8 +4804,10 @@ async function fern_saveSvgToAccount() {
     if (!response.ok) {
       throw new Error(payload.message || "Could not save the SVG to your account.");
     }
+    fernAccountAssetId = payload.id || fernAccountAssetId;
+    fern_setCurrentFile(accountFileName, null);
     fernOriginalSvgContent = fern_cleanForSave();
-    fern_setEditorStatus(`Saved ${payload.logical_name || fernCurrentFileName} to your account library.`);
+    fern_setEditorStatus(`Saved ${payload.logical_name || accountFileName} to your account library.`);
   } catch (fernError) {
     fern_setEditorStatus(fernError.message || "Could not save the SVG to your account.");
   }
@@ -5224,6 +5332,12 @@ async function fern_setupEditor() {
     } else if (actionButton && actionButton.dataset.action === "zoom-reset") {
       fern_closeAllMenus();
       fern_changeZoom("reset");
+    } else if (actionButton && actionButton.dataset.action === "edit-file-name") {
+      fern_openFileNameDialog();
+    } else if (actionButton && actionButton.dataset.action === "close-file-name-dialog") {
+      fern_closeFileNameDialog();
+    } else if (actionButton && actionButton.dataset.action === "commit-file-name") {
+      fern_commitFileName();
     } else if (actionButton && actionButton.dataset.action === "open-canvas-dialog") {
       fern_closeAllMenus();
       fern_openCanvasDialog();
@@ -5273,10 +5387,13 @@ async function fern_setupEditor() {
       fern_removeTraceBackdrop();
     } else if (actionButton && actionButton.dataset.action === "save") {
       fern_closeAllMenus();
-      fern_saveSvg();
+      if (fern_requireFileName("computer")) fern_saveSvg();
+    } else if (actionButton && actionButton.dataset.action === "copy-svg") {
+      fern_closeAllMenus();
+      fern_copySvgToClipboard();
     } else if (actionButton && actionButton.dataset.action === "save-to-account") {
       fern_closeAllMenus();
-      fern_saveSvgToAccount();
+      if (fern_requireFileName("account")) fern_saveSvgToAccount();
     } else if (actionButton && actionButton.dataset.action === "edit-color-set") {
       fern_closeAllMenus();
       fern_openColorEditor();
@@ -5335,8 +5452,11 @@ async function fern_setupEditor() {
   window.addEventListener("resize", fern_updateCanvasStageSize);
   window.addEventListener("beforeunload", fern_autoSaveLocal);
 
-  if (!fern_loadAutoSavedDraft()) {
+  const loadedAccountAsset = await fern_loadAccountAssetFromUrl().catch(() => false);
+  if (!loadedAccountAsset && !fern_loadAutoSavedDraft()) {
     fern_loadLocalSvg(FERN_EMPTY_SVG, "untitled.svg");
+    fernZoomLevel = FERN_DEFAULT_BLANK_ZOOM;
+    fern_applyZoom();
     fern_setEditorStatus("New drawing.");
   }
   fern_updateCanvasStageSize();

@@ -13,6 +13,7 @@ from wsgiref.simple_server import make_server
 FERN_DRAW_ROOT = Path(__file__).resolve().parent
 FERN_DRAW_STATIC_DIR = FERN_DRAW_ROOT / "static"
 FERN_DRAW_STYLES_DIR = FERN_DRAW_ROOT / "styles"
+FERN_SHARED_STYLES_DIR = FERN_DRAW_ROOT.parent / "fern-landing" / "styles"
 
 
 def fern_response(
@@ -77,9 +78,13 @@ def fern_create_application() -> Callable[[dict[str, Any], Callable[..., Any]], 
                 FERN_DRAW_STATIC_DIR, fern_path.removeprefix("/static/")
             )
         elif fern_path.startswith("/styles/"):
-            fern_result = fern_safe_file_response(
-                FERN_DRAW_STYLES_DIR, fern_path.removeprefix("/styles/")
-            )
+            fern_style_name = fern_path.removeprefix("/styles/")
+            if fern_style_name == "MaterialIcons-Regular.woff2":
+                fern_result = fern_safe_file_response(
+                    FERN_SHARED_STYLES_DIR / "assets", fern_style_name
+                )
+            else:
+                fern_result = fern_safe_file_response(FERN_DRAW_STYLES_DIR, fern_style_name)
         else:
             fern_result = fern_response(
                 b"Not found.\n", "text/plain; charset=utf-8", "404 Not Found"

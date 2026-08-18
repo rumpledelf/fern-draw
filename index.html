@@ -32,8 +32,9 @@
                 <input type="file" accept="image/svg+xml,.svg" data-local-file-input hidden>
                 <li class="site-submenu-option" data-action="reload">Revert</li>
                 <li class="site-submenu-divider"></li>
-                <li class="site-submenu-option" data-action="save">Save to Computer</li>
-                <li class="site-submenu-option" data-action="save-to-account" data-account-only hidden>Save to account</li>
+                <li class="site-submenu-option" data-action="save">Save to computer</li>
+                <li class="site-submenu-option" data-action="copy-svg">Copy SVG to clipboard</li>
+                <li class="site-submenu-option" data-action="save-to-account" data-account-action>Save to account</li>
               </ul>
             </div>
 
@@ -132,7 +133,11 @@
             <span class="toolbar-separator"></span>
 
             <!-- File badge -->
-            <strong class="file-name-pill" data-current-file title="Current File">untitled.svg</strong>
+            <button class="file-name-pill is-unnamed" type="button" data-action="edit-file-name" data-current-file title="Edit drawing name">untitled.svg</button>
+          </div>
+
+          <div class="draw-account-status">
+            <a href="/account/" data-draw-account-link hidden>Account</a>
           </div>
 
         </header>
@@ -227,7 +232,7 @@
               <p class="field-label">Account library</p>
               <h2 id="draw-color-dialog-title">Edit colors</h2>
             </div>
-            <button class="chip-btn chip-btn-icon" type="button" data-action="color-dialog-cancel" aria-label="Close dialog" title="Close">✕</button>
+            <button class="chip-btn chip-btn-icon" type="button" data-action="color-dialog-cancel" aria-label="Close dialog" title="Close"><span class="material-icons" aria-hidden="true">close</span></button>
           </div>
           <div class="draw-color-editor-layout">
             <section>
@@ -241,7 +246,7 @@
                       <option value="">Choose a saved color set</option>
                     </select>
                   </label>
-                  <button class="chip-btn" type="button" data-action="load-color-set">Load</button>
+                  <button class="chip-btn" type="button" data-action="load-color-set"><span class="material-icons" aria-hidden="true">upload</span>Load</button>
                 </div>
               </div>
               <p class="draw-color-login-message" data-color-set-login-message hidden>Log into your account to manage color sets</p>
@@ -264,9 +269,9 @@
             </section>
           </div>
           <div class="draw-color-dialog-actions draw-color-dialog-footer">
-            <button class="chip-btn chip-btn-primary" type="button" data-action="color-dialog-ok">OK</button>
-            <button class="chip-btn" type="button" data-action="color-dialog-cancel">Cancel</button>
-            <button class="chip-btn" type="button" data-action="save-color-set" data-color-set-save-account hidden>Save to account</button>
+            <button class="chip-btn chip-btn-primary" type="button" data-action="color-dialog-ok"><span class="material-icons" aria-hidden="true">check</span>OK</button>
+            <button class="chip-btn" type="button" data-action="color-dialog-cancel"><span class="material-icons" aria-hidden="true">close</span>Cancel</button>
+            <button class="chip-btn" type="button" data-action="save-color-set" data-color-set-save-account hidden><span class="material-icons" aria-hidden="true">save</span>Save to account</button>
           </div>
         </dialog>
 
@@ -276,7 +281,7 @@
               <p class="field-label">Drawing color</p>
               <h2 id="draw-toolbar-color-dialog-title">Edit Fill color</h2>
             </div>
-            <button class="chip-btn chip-btn-icon" type="button" data-action="close-toolbar-color-editor" aria-label="Close dialog" title="Close">✕</button>
+            <button class="chip-btn chip-btn-icon" type="button" data-action="close-toolbar-color-editor" aria-label="Close dialog" title="Close"><span class="material-icons" aria-hidden="true">close</span></button>
           </div>
           <div class="draw-toolbar-color-controls">
             <div class="draw-color-picker-group">
@@ -290,6 +295,26 @@
           </div>
           <p class="subgroup-title">Choose from this set</p>
           <div class="draw-toolbar-color-choices" data-toolbar-color-choices></div>
+        </dialog>
+
+        <dialog class="draw-modal-dialog" data-file-name-dialog aria-labelledby="draw-file-name-dialog-title">
+          <div class="draw-dialog-header">
+            <div>
+              <p class="field-label">Document</p>
+              <h2 id="draw-file-name-dialog-title">Name this drawing</h2>
+            </div>
+            <button class="chip-btn chip-btn-icon" type="button" data-action="close-file-name-dialog" aria-label="Close dialog" title="Close"><span class="material-icons" aria-hidden="true">close</span></button>
+          </div>
+          <div class="draw-dialog-body">
+            <label class="draw-dialog-row-label">Drawing name
+              <input class="select-pill" type="text" data-file-name-input value="untitled.svg" maxlength="160" autocomplete="off" spellcheck="false">
+            </label>
+            <p class="draw-dialog-hint">Choose a name before saving this drawing.</p>
+          </div>
+          <div class="draw-dialog-actions">
+            <button class="chip-btn" type="button" data-action="close-file-name-dialog"><span class="material-icons" aria-hidden="true">close</span>Cancel</button>
+            <button class="chip-btn chip-btn-primary" type="button" data-action="commit-file-name"><span class="material-icons" aria-hidden="true">check</span>Set name</button>
+          </div>
         </dialog>
 
         <!-- Canvas Dimensions Dialog -->

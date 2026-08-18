@@ -1,12 +1,5 @@
 @import url("https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&family=Inter:wght@400;500;600;700&family=Uncial+Antiqua&display=swap");
 
-@font-face {
-  font-family: "Material Icons";
-  font-style: normal;
-  font-weight: 400;
-  src: url("MaterialIcons-Regular.woff2") format("woff2");
-}
-
 .material-icons {
   display: inline-block;
   font-family: "Material Icons";
@@ -29,6 +22,13 @@
 
 html {
   color-scheme: dark;
+}
+
+:root {
+  --fern-radius-card: 12px;
+  --fern-radius-color: 9px;
+  --fern-radius-control: 6px;
+  --fern-radius-swatch: 5px;
 }
 
 body {
@@ -505,11 +505,14 @@ input[type="range"] {
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
-  margin-top: 2rem;
-  padding-top: 1rem;
+  height: 28px;
+  min-height: 28px;
+  margin: 0;
+  padding: 4px 12px;
   border-top: 1px solid var(--fern-border);
   color: var(--fern-text-soft);
-  font-size: 0.95rem;
+  font-size: 10px;
+  line-height: 1.2;
 }
 
 .page-shell > .site-footer {
@@ -526,7 +529,7 @@ input[type="range"] {
 .site-footer nav {
   display: flex;
   flex-wrap: wrap;
-  gap: 1rem;
+  gap: 0.35rem;
 }
 
 .page-shell {
@@ -615,6 +618,24 @@ input[type="range"] {
   flex: 1;
   padding: 0 1.25rem;
   overflow: visible;
+}
+
+.draw-account-status {
+  flex: 0 0 auto;
+  padding: 0 0.75rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.draw-account-status a {
+  color: var(--fern-text);
+  text-decoration: none;
+}
+
+.draw-account-status a:hover,
+.draw-account-status a:focus-visible {
+  text-decoration: underline;
 }
 
 .editor-menu-list {
@@ -751,7 +772,7 @@ input[type="range"] {
   max-height: min(760px, calc(100vh - 2rem));
   padding: 1.25rem;
   border: 1px solid var(--fern-border-strong);
-  border-radius: 18px;
+  border-radius: 12px;
   color: var(--fern-text);
   background: var(--fern-surface);
 }
@@ -800,7 +821,7 @@ input[type="range"] {
   min-width: 0;
   padding: 0.45rem;
   border: 1px solid var(--fern-control-border);
-  border-radius: 9px;
+  border-radius: var(--fern-radius-color);
   color: var(--fern-text-soft);
   background: var(--fern-control-bg);
   cursor: pointer;
@@ -822,7 +843,7 @@ input[type="range"] {
   height: 1.55rem;
   flex: 0 0 1.55rem;
   border: 1px solid rgba(255, 255, 255, 0.35);
-  border-radius: 5px;
+  border-radius: var(--fern-radius-swatch);
 }
 
 .draw-color-detail {
@@ -831,7 +852,7 @@ input[type="range"] {
   gap: 0.6rem;
   padding: 0.75rem;
   border: 1px solid var(--fern-border);
-  border-radius: 12px;
+  border-radius: var(--fern-radius-card);
   background: rgba(255, 255, 255, 0.02);
 }
 
@@ -976,7 +997,7 @@ input[type="range"] {
   max-height: calc(100vh - 2rem);
   padding: 1rem;
   border: 1px solid var(--fern-border-strong);
-  border-radius: 14px;
+  border-radius: var(--fern-radius-card);
   color: var(--fern-text);
   background: var(--fern-surface);
 }
@@ -1062,12 +1083,38 @@ input[type="range"] {
   border-radius: 999px;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   white-space: nowrap;
+  cursor: pointer;
+}
+
+.file-name-pill:hover,
+.file-name-pill:focus-visible {
+  border-color: var(--fern-accent-soft);
+  color: var(--fern-text);
+}
+
+.file-name-pill.is-unnamed {
+  border-color: var(--fern-danger, #d86b6b);
+  color: var(--fern-danger, #f0a0a0);
 }
 
 .chip-btn-icon {
   width: 2.1rem;
   padding: 0;
   font-size: 0.95rem;
+}
+
+.draw-color-dialog .chip-btn-icon,
+.draw-toolbar-color-dialog .chip-btn-icon,
+.draw-modal-dialog .chip-btn-icon {
+  width: 2.1rem;
+  height: 2.1rem;
+  border-radius: 50%;
+}
+
+.draw-color-dialog .select-pill,
+.draw-toolbar-color-dialog .select-pill,
+.draw-modal-dialog .select-pill {
+  border-radius: var(--fern-radius-control);
 }
 
 .zoom-chip-group {
@@ -1323,7 +1370,9 @@ input[type="range"] {
 
 .svg-editor-stage {
   position: relative;
-  display: block;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   min-width: 0;
   width: 100%;
   height: 100%;
@@ -1355,7 +1404,8 @@ input[type="range"] {
 
 .svg-editor-canvas {
   display: block;
-  margin: 0 auto;
+  flex: 0 0 auto;
+  margin: 0;
   border: 1px solid var(--fern-border-strong);
   border-radius: 2px;
   box-shadow: 0 4px 24px rgba(0, 0, 0, 0.45);
@@ -1541,7 +1591,7 @@ input[type="range"] {
   gap: 0.3rem;
   padding: 0.55rem;
   border: 1px solid var(--fern-border);
-  border-radius: 12px;
+  border-radius: var(--fern-radius-card);
   background: rgba(255, 255, 255, 0.02);
 }
 
@@ -1556,7 +1606,7 @@ input[type="range"] {
   height: 2rem;
   padding: 0;
   border: 1px solid var(--fern-border);
-  border-radius: 6px;
+  border-radius: var(--fern-radius-control);
   cursor: pointer;
 }
 
@@ -1761,7 +1811,7 @@ input[type="range"] {
 .draw-modal-dialog {
   padding: 1.5rem;
   border: 1px solid var(--fern-border-strong);
-  border-radius: 0.75rem;
+  border-radius: var(--fern-radius-card);
   background: var(--fern-panel);
   color: var(--fern-text);
   box-shadow: 0 16px 36px rgba(0, 0, 0, 0.45);
@@ -1809,6 +1859,14 @@ input[type="range"] {
   font-size: 0.8rem;
   color: var(--fern-text-soft);
   flex: 1;
+}
+
+.draw-dialog-row-label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  color: var(--fern-text-soft);
+  font-size: 0.8rem;
 }
 
 .draw-dialog-grid {

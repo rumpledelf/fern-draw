@@ -801,19 +801,6 @@ input[type="range"] {
   font-size: 1.6rem;
 }
 
-.draw-color-editor-layout {
-  display: grid;
-  grid-template-columns: minmax(0, 1.15fr) minmax(220px, 0.85fr);
-  gap: 1.25rem;
-  margin: 1.25rem 0;
-}
-
-.draw-palette-slots {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.45rem;
-}
-
 .draw-palette-slot {
   display: flex;
   align-items: center;
@@ -881,17 +868,6 @@ input[type="range"] {
   gap: 0.6rem;
 }
 
-.draw-color-picker-group {
-  display: grid;
-  gap: 0.3rem;
-}
-
-.draw-color-picker-label {
-  color: var(--fern-text-soft);
-  font-size: 0.72rem;
-  font-weight: 600;
-}
-
 .draw-color-inputs label,
 .draw-color-load {
   display: grid;
@@ -899,70 +875,6 @@ input[type="range"] {
   color: var(--fern-text-soft);
   font-size: 0.72rem;
   font-weight: 600;
-}
-
-.draw-inline-picker {
-  display: grid;
-  gap: 0.55rem;
-}
-
-.draw-color-picker-surface {
-  position: relative;
-  min-height: 9rem;
-  overflow: hidden;
-  border: 1px solid var(--fern-control-border);
-  border-radius: 7px;
-  cursor: crosshair;
-  touch-action: none;
-}
-
-.draw-color-picker-thumb {
-  position: absolute;
-  width: 0.85rem;
-  height: 0.85rem;
-  transform: translate(-50%, -50%);
-  border: 2px solid #fff;
-  border-radius: 50%;
-  box-shadow: 0 0 0 1px #000;
-  pointer-events: none;
-}
-
-.draw-color-picker-hue-label {
-  display: grid;
-  gap: 0.3rem;
-  color: var(--fern-text-soft);
-  font-size: 0.72rem;
-  font-weight: 600;
-}
-
-.draw-color-picker-hue {
-  width: 100%;
-  height: 1rem;
-  margin: 0;
-  appearance: none;
-  border: 1px solid var(--fern-control-border);
-  border-radius: 999px;
-  background: linear-gradient(to right, #ff0000 0%, #ffff00 16.6%, #00ff00 33.3%, #00ffff 50%, #0000ff 66.6%, #ff00ff 83.3%, #ff0000 100%);
-  cursor: pointer;
-}
-
-.draw-color-picker-hue::-webkit-slider-thumb {
-  width: 1rem;
-  height: 1rem;
-  appearance: none;
-  border: 2px solid #fff;
-  border-radius: 50%;
-  background: #1a1a1a;
-  box-shadow: 0 0 0 1px #000;
-}
-
-.draw-color-picker-hue::-moz-range-thumb {
-  width: 0.8rem;
-  height: 0.8rem;
-  border: 2px solid #fff;
-  border-radius: 50%;
-  background: #1a1a1a;
-  box-shadow: 0 0 0 1px #000;
 }
 
 .draw-color-inputs input[type="text"],
@@ -973,6 +885,9 @@ input[type="range"] {
 .draw-color-dialog-actions {
   justify-content: flex-end;
   flex-wrap: wrap;
+}
+.draw-color-dialog-footer {
+  margin-top: 1.25rem;
 }
 
 .draw-color-load {
@@ -1065,10 +980,6 @@ input[type="range"] {
 }
 
 @media (max-width: 700px) {
-  .draw-color-editor-layout {
-    grid-template-columns: 1fr;
-  }
-
   .draw-color-dialog-actions {
     align-items: stretch;
   }

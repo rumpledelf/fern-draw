@@ -6,6 +6,8 @@
     <title>Phrond Draw</title>
     <link rel="stylesheet" href="/styles/palette.css">
     <link rel="stylesheet" href="/styles/fern-draw.css">
+    <link rel="stylesheet" href="../../styles/fern-shared-chrome.css">
+    <link rel="stylesheet" href="../../styles/fern-shared-color-controls.css?v=2">
   </head>
   <body>
     <div class="page-shell">
@@ -234,10 +236,10 @@
             </div>
             <button class="chip-btn chip-btn-icon" type="button" data-action="color-dialog-cancel" aria-label="Close dialog" title="Close"><span class="material-icons" aria-hidden="true">close</span></button>
           </div>
-          <div class="draw-color-editor-layout">
+          <div class="fern-color-editor-layout">
             <section>
               <p class="subgroup-title" data-palette-heading>12 colors</p>
-              <div class="draw-palette-slots" data-palette-slots></div>
+              <div class="fern-color-grid" data-palette-slots></div>
               <div data-color-set-account-controls hidden>
                 <hr class="draw-color-dialog-rule">
                 <div class="draw-color-dialog-actions" data-color-dialog-actions>
@@ -257,11 +259,11 @@
                 <span class="draw-active-color-swatch" data-active-color-swatch aria-label="Current color"></span>
               </div>
               <div class="draw-color-inputs">
-                <div class="draw-color-picker-group">
-                  <span class="draw-color-picker-label">Color picker</span>
-                  <div class="draw-inline-picker">
-                    <div class="draw-color-picker-surface" data-palette-picker-surface role="slider" aria-label="Color saturation and brightness" tabindex="0"><span class="draw-color-picker-thumb" data-palette-picker-thumb></span></div>
-                    <label class="draw-color-picker-hue-label">Hue<input class="draw-color-picker-hue" data-palette-picker-hue type="range" min="0" max="360" value="0" aria-label="Color hue"></label>
+                <div class="fern-color-picker-group">
+                  <span class="fern-color-picker-label">Color picker</span>
+                  <div class="fern-inline-picker">
+                    <div class="fern-color-picker-surface" data-palette-picker-surface role="slider" aria-label="Color saturation and brightness" tabindex="0"><span class="fern-color-picker-thumb" data-palette-picker-thumb></span></div>
+                    <label class="fern-color-picker-hue-label">Hue<input class="fern-color-picker-hue" data-palette-picker-hue type="range" min="0" max="360" value="0" aria-label="Color hue"></label>
                   </div>
                 </div>
                 <label>Hex<input class="select-pill" type="text" data-palette-hex value="#000000" maxlength="7" spellcheck="false"></label>
@@ -284,11 +286,11 @@
             <button class="chip-btn chip-btn-icon" type="button" data-action="close-toolbar-color-editor" aria-label="Close dialog" title="Close"><span class="material-icons" aria-hidden="true">close</span></button>
           </div>
           <div class="draw-toolbar-color-controls">
-            <div class="draw-color-picker-group">
-              <span class="draw-color-picker-label">Color picker</span>
-              <div class="draw-inline-picker">
-                <div class="draw-color-picker-surface" data-toolbar-color-picker-surface role="slider" aria-label="Color saturation and brightness" tabindex="0"><span class="draw-color-picker-thumb" data-toolbar-color-picker-thumb></span></div>
-                <label class="draw-color-picker-hue-label">Hue<input class="draw-color-picker-hue" data-toolbar-color-picker-hue type="range" min="0" max="360" value="0" aria-label="Color hue"></label>
+            <div class="fern-color-picker-group">
+              <span class="fern-color-picker-label">Color picker</span>
+              <div class="fern-inline-picker">
+                <div class="fern-color-picker-surface" data-toolbar-color-picker-surface role="slider" aria-label="Color saturation and brightness" tabindex="0"><span class="fern-color-picker-thumb" data-toolbar-color-picker-thumb></span></div>
+                <label class="fern-color-picker-hue-label">Hue<input class="fern-color-picker-hue" data-toolbar-color-picker-hue type="range" min="0" max="360" value="0" aria-label="Color hue"></label>
               </div>
             </div>
             <label>Hex<input class="select-pill" type="text" data-toolbar-color-hex value="#FFFFFF" maxlength="7" spellcheck="false"></label>

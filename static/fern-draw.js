@@ -4894,6 +4894,14 @@ async function fern_setupEditor() {
   if (colorDialog) {
     colorDialog.addEventListener("cancel", fern_cancelColorEditor);
   }
+  const toolbarColorDialog = fernEditor.querySelector("[data-toolbar-color-dialog]");
+  if (toolbarColorDialog) {
+    toolbarColorDialog.addEventListener("click", (event) => {
+      if (event.target === toolbarColorDialog) {
+        fern_closeToolbarColorEditor();
+      }
+    });
+  }
 
   const localFileInput = fernEditor.querySelector("[data-local-file-input]");
   if (localFileInput) {

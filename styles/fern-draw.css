@@ -660,6 +660,27 @@ input[type="range"] {
   background: rgba(255, 255, 255, 0.06);
 }
 
+.editor-topbar .topbar-help-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.95rem;
+  padding-inline: 0.7rem;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--fern-text-soft);
+  font-size: 0.82rem;
+  font-weight: 500;
+}
+
+.editor-topbar .topbar-help-link:hover,
+.editor-topbar .topbar-help-link:focus-visible {
+  border-color: transparent;
+  color: var(--fern-text);
+  background: rgba(255, 255, 255, 0.06);
+  outline: none;
+}
+
 .site-toolbar-row {
   flex: 0 0 auto;
   border-bottom: 1px solid var(--fern-divider-border);

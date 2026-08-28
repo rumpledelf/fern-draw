@@ -6,15 +6,20 @@ served by the `fern-landing` product shell at `/tools/draw/`.
 
 ## Development
 
-The bundled server is only a local development runner:
+> **Note**: `fern-draw` cannot be run freestanding or individually. It is mounted directly into and served by the `fern-landing` product shell at `/tools/draw/`.
+
+To run the application locally, start the `fern-landing` development server:
 
 ```bash
-python3 app.py
+cd ../fern-landing
+php artisan serve
 ```
 
-Then open `http://127.0.0.1:8010`.
+Then access Draw at `http://127.0.0.1:8000/tools/draw/`.
 
-Run the tests with:
+### Tests
+
+Run unit tests with:
 
 ```bash
 python3 -m unittest discover -s tests -v

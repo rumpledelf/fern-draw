@@ -97,16 +97,7 @@ def fern_create_application() -> Callable[[dict[str, Any], Callable[..., Any]], 
 
 
 def fern_main() -> None:
-    fern_host = os.environ.get("FERN_DRAW_HOST", "127.0.0.1")
-    if fern_host not in {"127.0.0.1", "localhost", "::1"}:
-        raise SystemExit("The Fern Draw server only accepts a loopback host.")
-    fern_port = int(os.environ.get("FERN_DRAW_PORT", "8010"))
-    try:
-        with make_server(fern_host, fern_port, fern_create_application()) as fern_server:
-            print(f"Fern Draw listening on http://{fern_host}:{fern_port}")
-            fern_server.serve_forever()
-    except KeyboardInterrupt:
-        print("\nFern Draw stopped.")
+    raise SystemExit("fern-draw cannot be run freestanding; it is mounted as a route in fern-landing.")
 
 
 if __name__ == "__main__":

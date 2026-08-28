@@ -1431,7 +1431,7 @@ async function fern_getAccountColorSetRequest() {
     throw new Error("Sign in to use saved colors.");
   }
   return {
-    "X-CSRFToken": decodeURIComponent(fern_getCookie("csrftoken")),
+    "X-XSRF-TOKEN": decodeURIComponent(fern_getCookie("XSRF-TOKEN")),
   };
 }
 
@@ -3248,10 +3248,10 @@ function fern_scalePoints(points, sx, sy, originX = 0, originY = 0) {
 function fern_scaleElement(element, sx, sy, originX, originY, original) {
   const tag = fern_getTagName(element);
   if (tag === "rect") {
-    const origX = original.x;
-    const origY = original.y;
-    const origW = fern_numericAttr(element, "width", original.width || 0);
-    const origH = fern_numericAttr(element, "height", original.height || 0);
+    const origX = original.x ?? 0;
+    const origY = original.y ?? 0;
+    const origW = original.width ?? 10;
+    const origH = original.height ?? 10;
     const newX = originX + (origX - originX) * sx;
     const newY = originY + (origY - originY) * sy;
     const newW = Math.abs(origW * sx);
@@ -3263,9 +3263,9 @@ function fern_scaleElement(element, sx, sy, originX, originY, original) {
     return;
   }
   if (tag === "circle") {
-    const origCx = original.cx;
-    const origCy = original.cy;
-    const origR = fern_numericAttr(element, "r", original.r || 0);
+    const origCx = original.cx ?? 0;
+    const origCy = original.cy ?? 0;
+    const origR = original.r ?? 5;
     const newCx = originX + (origCx - originX) * sx;
     const newCy = originY + (origCy - originY) * sy;
     const scaleAvg = (Math.abs(sx) + Math.abs(sy)) / 2;
@@ -3275,10 +3275,10 @@ function fern_scaleElement(element, sx, sy, originX, originY, original) {
     return;
   }
   if (tag === "ellipse") {
-    const origCx = original.cx;
-    const origCy = original.cy;
-    const origRx = fern_numericAttr(element, "rx", original.rx || 0);
-    const origRy = fern_numericAttr(element, "ry", original.ry || 0);
+    const origCx = original.cx ?? 0;
+    const origCy = original.cy ?? 0;
+    const origRx = original.rx ?? 5;
+    const origRy = original.ry ?? 5;
     fern_setNumericAttr(element, "cx", originX + (origCx - originX) * sx);
     fern_setNumericAttr(element, "cy", originY + (origCy - originY) * sy);
     fern_setNumericAttr(element, "rx", Math.max(0.1, Math.abs(origRx * sx)));
@@ -4792,7 +4792,7 @@ async function fern_saveSvgToAccount() {
       headers: {
         "Content-Type": "application/json",
         Accept: "application/json",
-        "X-CSRFToken": decodeURIComponent(fern_getCookie("csrftoken")),
+        "X-XSRF-TOKEN": decodeURIComponent(fern_getCookie("XSRF-TOKEN")),
       },
       body: JSON.stringify({
         logical_name: accountFileName,

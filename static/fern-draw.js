@@ -660,48 +660,131 @@ function fern_hasSmoothControlGeometry(anchor) {
   return scale > 0 && dot < 0 && Math.abs(cross) / scale < 0.02;
 }
 
-function fern_selectableTarget(target) {
-  if (!fernActiveSvg || target === fernActiveSvg || !fernActiveSvg.contains(target)) {
-    return null;
+function fern_getElementArea(element) {
+  if (!element || !fernActiveSvg) {
+    return Infinity;
   }
-  if (
-    target.closest("[data-editor-handles]") ||
-    target.closest("[data-editor-grid]") ||
-    target.closest("[data-editor-backdrop]")
-  ) {
+  try {
+    const box = fern_getElementBoundingBox(element);
+    if (!box || (box.width === 0 && box.height === 0)) {
+      return 0;
+    }
+    return Math.abs((box.width || 0) * (box.height || 0));
+  } catch (_e) {
+    return Infinity;
+  }
+}
+
+function fern_selectableTarget(target, event = null) {
+  if (!fernActiveSvg) {
     return null;
   }
 
-  if (fernEditorMode === "select-group") {
-    let current = target;
-    let topmostGroup = null;
-    while (current && current !== fernActiveSvg) {
+  // 1. Gather all candidates under the click/pointer location if event coordinates are provided
+  const candidateElements = [];
+  if (event && typeof document.elementsFromPoint === "function" && typeof event.clientX === "number") {
+    const rawList = document.elementsFromPoint(event.clientX, event.clientY);
+    for (const el of rawList) {
+      if (!el || el === fernActiveSvg || !fernActiveSvg.contains(el)) continue;
       if (
-        current.tagName === "g" &&
-        !current.hasAttribute("data-editor-handles") &&
-        !current.hasAttribute("data-editor-grid") &&
-        !current.hasAttribute("data-editor-backdrop")
+        el.closest("[data-editor-handles]") ||
+        el.closest("[data-editor-grid]") ||
+        el.closest("[data-editor-backdrop]")
       ) {
-        topmostGroup = current;
+        continue;
       }
-      current = current.parentElement;
-    }
-    if (topmostGroup) {
-      return topmostGroup;
+      const tag = fern_getTagName(el);
+      if (FERN_SHAPE_ATTRS[tag] || tag === "circle" || tag === "g") {
+        if (!candidateElements.includes(el)) {
+          candidateElements.push(el);
+        }
+      }
     }
   }
 
-  const group = target.closest("g");
-  if (group && group !== fernActiveSvg && !group.closest("[data-editor-handles]") && !group.closest("[data-editor-grid]") && !group.closest("[data-editor-backdrop]")) {
-    if (fernSelectedElement === group) {
-      const tag = fern_getTagName(target);
-      return (FERN_SHAPE_ATTRS[tag] || tag === "circle") ? target : group;
+  if (target && target !== fernActiveSvg && fernActiveSvg.contains(target)) {
+    if (
+      !target.closest("[data-editor-handles]") &&
+      !target.closest("[data-editor-grid]") &&
+      !target.closest("[data-editor-backdrop]")
+    ) {
+      if (!candidateElements.includes(target)) {
+        candidateElements.push(target);
+      }
     }
-    return group;
   }
 
-  const tag = fern_getTagName(target);
-  return (FERN_SHAPE_ATTRS[tag] || tag === "circle" || tag === "g") ? target : null;
+  if (candidateElements.length === 0) {
+    return null;
+  }
+
+  // Separate leaf shape elements from <g> containers
+  const leafShapes = candidateElements.filter((el) => {
+    const tag = fern_getTagName(el);
+    return tag !== "g" && (FERN_SHAPE_ATTRS[tag] || tag === "circle");
+  });
+
+  // Sort leaf shapes by bounding box area ascending (most specific / smallest area first)
+  leafShapes.sort((a, b) => fern_getElementArea(a) - fern_getElementArea(b));
+
+  // Mode: SELECT GROUP (Select Group mode)
+  if (fernEditorMode === "select-group") {
+    // Collect all candidate <g> elements enclosing any of the candidates from innermost to outermost
+    const candidateGroups = [];
+    const elementsToTrace = leafShapes.length > 0 ? leafShapes : candidateElements;
+    for (const el of elementsToTrace) {
+      let current = el;
+      while (current && current !== fernActiveSvg) {
+        if (
+          current.tagName === "g" &&
+          !current.hasAttribute("data-editor-handles") &&
+          !current.hasAttribute("data-editor-grid") &&
+          !current.hasAttribute("data-editor-backdrop")
+        ) {
+          if (!candidateGroups.includes(current)) {
+            candidateGroups.push(current);
+          }
+        }
+        current = current.parentElement;
+      }
+    }
+
+    if (candidateGroups.length > 0) {
+      // If current selected element is already one of the candidate groups, cycle up/through the hierarchy
+      if (fernSelectedElement && candidateGroups.includes(fernSelectedElement) && candidateGroups.length > 1 && !event?.shiftKey) {
+        const currentIndex = candidateGroups.indexOf(fernSelectedElement);
+        return candidateGroups[(currentIndex + 1) % candidateGroups.length];
+      }
+      return candidateGroups[0];
+    }
+    // If no groups exist, fallback to leaf shape or candidate
+    return leafShapes[0] || candidateElements[0];
+  }
+
+  // Mode: SELECT NODE (Select Node mode)
+  if (fernEditorMode === "select-node") {
+    // In node select mode, always pick a leaf shape (preferring paths/shapes with nodes)
+    if (leafShapes.length > 0) {
+      if (fernSelectedElement && leafShapes.includes(fernSelectedElement) && leafShapes.length > 1 && !event?.shiftKey) {
+        const currentIndex = leafShapes.indexOf(fernSelectedElement);
+        return leafShapes[(currentIndex + 1) % leafShapes.length];
+      }
+      return leafShapes[0];
+    }
+    return candidateElements[0] || null;
+  }
+
+  // Mode: SELECT (Select Shape mode) & other modes (pan/draw)
+  if (leafShapes.length > 0) {
+    // Sort from most specific (smallest area) to least specific (largest area, e.g. background rect)
+    if (fernSelectedElement && leafShapes.includes(fernSelectedElement) && leafShapes.length > 1 && !event?.shiftKey) {
+      const currentIndex = leafShapes.indexOf(fernSelectedElement);
+      return leafShapes[(currentIndex + 1) % leafShapes.length];
+    }
+    return leafShapes[0];
+  }
+
+  return candidateElements[0] || null;
 }
 
 function fern_clearHandles() {
@@ -3721,7 +3804,7 @@ function fern_handlePointerDown(event) {
   const point = fern_getCanvasPoint(event);
   const handle = event.target.closest("[data-point-index]");
   const resizeHandle = event.target.closest("[data-resize-handle]");
-  const target = fern_selectableTarget(event.target);
+  const target = fern_selectableTarget(event.target, event);
   const stage = fernEditor.querySelector("[data-svg-canvas]")?.parentElement;
   const viewBox = fern_getViewBox();
 

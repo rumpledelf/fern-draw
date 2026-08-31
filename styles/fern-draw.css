@@ -497,7 +497,7 @@ output {
 
 input[type="range"] {
   width: 100%;
-  accent-color: var(--color-orange-main);
+  accent-color: var(--fern-accent-soft);
 }
 
 .site-footer {
@@ -1399,7 +1399,7 @@ input[type="range"] {
 }
 
 .svg-point-control {
-  fill: var(--color-orange-light);
+  fill: var(--fern-accent-pale);
 }
 
 .is-active-point {

@@ -106,20 +106,28 @@
             <span class="toolbar-separator"></span>
 
             <!-- Zoom Controls -->
-            <button class="chip-btn chip-btn-icon" type="button" data-action="zoom-out" title="Zoom Out">−</button>
-            <button class="chip-btn" type="button" data-action="zoom-reset" title="Reset View (100%)">Reset</button>
-            <button class="chip-btn chip-btn-icon" type="button" data-action="zoom-in" title="Zoom In">+</button>
+            <button class="chip-btn chip-btn-icon" type="button" data-action="zoom-out" title="Zoom Out" aria-label="Zoom Out">
+              <svg viewBox="0 0 24 24" style="width: 20px; height: 20px; min-width: 20px; min-height: 20px; display: inline-block; vertical-align: middle;" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="10" cy="10" r="6.5"/><line x1="15" y1="15" x2="21" y2="21" stroke-width="2.6"/><line x1="6.5" y1="10" x2="13.5" y2="10" stroke-width="2.6"/></svg>
+            </button>
+            <button class="chip-btn chip-btn-icon" type="button" data-action="zoom-reset" title="Reset View (100%)" aria-label="Reset View">
+              <svg viewBox="0 0 24 24" style="width: 20px; height: 20px; min-width: 20px; min-height: 20px; display: inline-block; vertical-align: middle;" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="6.5"/><circle cx="12" cy="12" r="2.2" fill="currentColor"/><line x1="12" y1="2" x2="12" y2="5.5" stroke-width="2"/><line x1="12" y1="18.5" x2="12" y2="22" stroke-width="2"/><line x1="2" y1="12" x2="5.5" y2="12" stroke-width="2"/><line x1="18.5" y1="12" x2="22" y2="12" stroke-width="2"/></svg>
+            </button>
+            <button class="chip-btn chip-btn-icon" type="button" data-action="zoom-in" title="Zoom In" aria-label="Zoom In">
+              <svg viewBox="0 0 24 24" style="width: 20px; height: 20px; min-width: 20px; min-height: 20px; display: inline-block; vertical-align: middle;" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="10" cy="10" r="6.5"/><line x1="15" y1="15" x2="21" y2="21" stroke-width="2.6"/><line x1="6.5" y1="10" x2="13.5" y2="10" stroke-width="2.6"/><line x1="10" y1="6.5" x2="10" y2="13.5" stroke-width="2.6"/></svg>
+            </button>
 
             <div class="topbar-color-controls" aria-label="Colors">
-              <button class="topbar-color-control" type="button" data-action="edit-toolbar-color" data-color-role="fill" data-color-source="toolbar" title="Edit Fill color">
-                <span>Fill</span>
+              <button class="topbar-color-control" type="button" data-action="edit-toolbar-color" data-color-role="fill" data-color-source="toolbar" title="Edit Fill color" aria-label="Edit Fill color">
                 <span class="topbar-color-swatch" data-toolbar-swatch="fill" aria-hidden="true"></span>
+                <span class="topbar-color-label">Fill</span>
               </button>
-              <button class="topbar-color-control" type="button" data-action="edit-toolbar-color" data-color-role="stroke" data-color-source="toolbar" title="Edit Stroke color">
-                <span>Stroke</span>
+              <button class="topbar-color-control" type="button" data-action="edit-toolbar-color" data-color-role="stroke" data-color-source="toolbar" title="Edit Stroke color" aria-label="Edit Stroke color">
                 <span class="topbar-color-swatch" data-toolbar-swatch="stroke" aria-hidden="true"></span>
+                <span class="topbar-color-label">Stroke</span>
               </button>
-              <button class="chip-btn" type="button" data-action="edit-color-set" title="Edit colors">Edit colors</button>
+              <button class="chip-btn chip-btn-icon" type="button" data-action="edit-color-set" title="Edit colors" aria-label="Edit colors">
+                <span class="material-icons" aria-hidden="true">palette</span>
+              </button>
             </div>
 
             <span class="toolbar-separator"></span>
@@ -138,23 +146,40 @@
           <div class="site-toolbar-band">
             <div class="site-toolbar">
               <div class="toolbar-group">
-                <span class="field-label">Mode</span>
+                <span class="field-label">Tools</span>
                 <div class="chip-row">
-                  <button class="chip-btn is-active" type="button" data-mode="select" title="Select shape (V)">Select</button>
-                  <button class="chip-btn" type="button" data-mode="select-group" title="Select group (G)">Select Group</button>
-                  <button class="chip-btn" type="button" data-mode="select-node" title="Select node (A)">Select Node</button>
-                  <button class="chip-btn" type="button" data-mode="pan" title="Pan / Hand tool (H)">Hand</button>
+                  <button class="chip-btn chip-btn-icon is-active" type="button" data-mode="select" title="Select shape (V)" aria-label="Select shape">
+                    <span class="material-icons" aria-hidden="true">near_me</span>
+                  </button>
+                  <button class="chip-btn chip-btn-icon" type="button" data-mode="select-group" title="Select group (G)" aria-label="Select group">
+                    <span class="material-icons" aria-hidden="true">select_all</span>
+                  </button>
+                  <button class="chip-btn chip-btn-icon" type="button" data-mode="select-node" title="Select node (A)" aria-label="Select node">
+                    <span class="material-icons" aria-hidden="true">ads_click</span>
+                  </button>
+                  <button class="chip-btn chip-btn-icon" type="button" data-mode="pan" title="Pan / Hand tool (H)" aria-label="Pan / Hand tool">
+                    <span class="material-icons" aria-hidden="true">pan_tool</span>
+                  </button>
                 </div>
               </div>
               <div class="toolbar-group">
                 <span class="field-label">Shapes</span>
                 <div class="chip-row">
-                  <button class="chip-btn" type="button" data-add="path" title="Draw Path">Path</button>
-                  <button class="chip-btn" type="button" data-add="rect" title="Add Rectangle">Rect</button>
-                  <button class="chip-btn" type="button" data-add="circle" title="Add Circle">Circle</button>
-                  <button class="chip-btn" type="button" data-add="ellipse" title="Add Ellipse">Ellipse</button>
-                  <button class="chip-btn" type="button" data-add="line" title="Add Line">Line</button>
-                  <button class="chip-btn" type="button" data-add="polygon" title="Add Polygon">Polygon</button>
+                  <button class="chip-btn chip-btn-icon" type="button" data-add="path" title="Draw Path (P)" aria-label="Draw Path">
+                    <span class="material-icons" aria-hidden="true">gesture</span>
+                  </button>
+                  <button class="chip-btn chip-btn-icon" type="button" data-add="rect" title="Add Rectangle" aria-label="Add Rectangle">
+                    <span class="material-icons" aria-hidden="true">crop_square</span>
+                  </button>
+                  <button class="chip-btn chip-btn-icon" type="button" data-add="circle" title="Add Circle / Ellipse" aria-label="Add Circle / Ellipse">
+                    <span class="material-icons" aria-hidden="true">radio_button_unchecked</span>
+                  </button>
+                  <button class="chip-btn chip-btn-icon" type="button" data-add="line" title="Add Line" aria-label="Add Line">
+                    <span class="material-icons" aria-hidden="true">horizontal_rule</span>
+                  </button>
+                  <button class="chip-btn chip-btn-icon" type="button" data-add="polygon" title="Add Polygon" aria-label="Add Polygon">
+                    <svg viewBox="0 0 24 24" style="width: 18px; height: 18px; min-width: 18px; min-height: 18px; display: inline-block; vertical-align: middle;" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round" aria-hidden="true"><polygon points="12,2 22,9.3 18.2,21.5 5.8,21.5 2,9.3"/></svg>
+                  </button>
                 </div>
               </div>
               <div class="toolbar-group">
@@ -184,19 +209,35 @@
                 <span class="field-label">Radial Copy</span>
                 <div class="svg-editor-duplicate">
                   <input data-duplicate-count class="select-pill" type="number" value="6" min="2" max="64" step="1">
-                  <button class="chip-btn" type="button" data-action="duplicate-radial" title="Radial copy">Copy</button>
+                  <button class="chip-btn chip-btn-icon" type="button" data-action="duplicate-radial" title="Radial copy" aria-label="Radial copy">
+                    <span class="material-icons" aria-hidden="true">hub</span>
+                  </button>
                 </div>
               </div>
               <div class="toolbar-group">
                 <span class="field-label">Nodes</span>
                 <div class="chip-row">
-                  <button class="chip-btn" type="button" data-node-action="corner" title="Set Node to Corner">Corner</button>
-                  <button class="chip-btn" type="button" data-node-action="smooth" title="Set Node to Smooth">Smooth</button>
-                  <button class="chip-btn" type="button" data-node-action="straight" title="Set Segment Straight">Straight</button>
-                  <button class="chip-btn" type="button" data-node-action="curve" title="Set Segment Curve">Curve</button>
-                  <button class="chip-btn" type="button" data-node-action="add" title="Add Node to Path">Add</button>
-                  <button class="chip-btn" type="button" data-node-action="merge" title="Merge Nodes">Merge</button>
-                  <button class="chip-btn" type="button" data-node-action="delete" title="Delete Selected Nodes">Delete</button>
+                  <button class="chip-btn chip-btn-icon" type="button" data-node-action="corner" title="Set Node to Corner" aria-label="Set Node to Corner">
+                    <svg viewBox="0 0 24 24" style="width: 22px; height: 22px; min-width: 22px; min-height: 22px; display: inline-block; vertical-align: middle;" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="2" y1="12" x2="22" y2="12"/><polygon points="12,7.5 16.5,12 12,16.5 7.5,12" fill="var(--fern-control-bg, #1a1a1a)" stroke="currentColor" stroke-width="1.7"/></svg>
+                  </button>
+                  <button class="chip-btn chip-btn-icon" type="button" data-node-action="smooth" title="Set Node to Smooth" aria-label="Set Node to Smooth">
+                    <svg viewBox="0 0 24 24" style="width: 22px; height: 22px; min-width: 22px; min-height: 22px; display: inline-block; vertical-align: middle;" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="2" y1="12" x2="22" y2="12"/><rect x="8.5" y="8.5" width="7" height="7" fill="var(--fern-control-bg, #1a1a1a)" stroke="currentColor" stroke-width="1.7"/></svg>
+                  </button>
+                  <button class="chip-btn chip-btn-icon" type="button" data-node-action="straight" title="Set Segment Straight" aria-label="Set Segment Straight">
+                    <svg viewBox="0 0 24 24" style="width: 22px; height: 22px; min-width: 22px; min-height: 22px; display: inline-block; vertical-align: middle;" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="4" y1="12" x2="20" y2="12"/><rect x="2" y="8.5" width="6.5" height="7" fill="var(--fern-control-bg, #1a1a1a)" stroke="currentColor" stroke-width="1.7"/><rect x="15.5" y="8.5" width="6.5" height="7" fill="var(--fern-control-bg, #1a1a1a)" stroke="currentColor" stroke-width="1.7"/></svg>
+                  </button>
+                  <button class="chip-btn chip-btn-icon" type="button" data-node-action="curve" title="Set Segment Curve" aria-label="Set Segment Curve">
+                    <svg viewBox="0 0 24 24" style="width: 22px; height: 22px; min-width: 22px; min-height: 22px; display: inline-block; vertical-align: middle;" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M 4 12 C 7 2.5 17 2.5 20 12"/><rect x="2" y="8.5" width="6.5" height="7" fill="var(--fern-control-bg, #1a1a1a)" stroke="currentColor" stroke-width="1.7"/><rect x="15.5" y="8.5" width="6.5" height="7" fill="var(--fern-control-bg, #1a1a1a)" stroke="currentColor" stroke-width="1.7"/></svg>
+                  </button>
+                  <button class="chip-btn chip-btn-icon" type="button" data-node-action="add" title="Add Node to Path" aria-label="Add Node to Path">
+                    <svg viewBox="0 0 24 24" style="width: 22px; height: 22px; min-width: 22px; min-height: 22px; display: inline-block; vertical-align: middle;" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="2" y1="17" x2="22" y2="17"/><rect x="8.5" y="13.5" width="7" height="7" fill="var(--fern-control-bg, #1a1a1a)" stroke="currentColor" stroke-width="1.7"/><line x1="12" y1="3" x2="12" y2="10" stroke-width="2"/><line x1="8.5" y1="6.5" x2="15.5" y2="6.5" stroke-width="2"/></svg>
+                  </button>
+                  <button class="chip-btn chip-btn-icon" type="button" data-node-action="merge" title="Merge Nodes" aria-label="Merge Nodes">
+                    <svg viewBox="0 0 24 24" style="width: 22px; height: 22px; min-width: 22px; min-height: 22px; display: inline-block; vertical-align: middle;" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M 3 7 L 12 13 L 21 7"/><line x1="12" y1="13" x2="12" y2="21"/><rect x="8.5" y="9.5" width="7" height="7" fill="var(--fern-control-bg, #1a1a1a)" stroke="currentColor" stroke-width="1.7"/></svg>
+                  </button>
+                  <button class="chip-btn chip-btn-icon" type="button" data-node-action="delete" title="Delete Selected Nodes" aria-label="Delete Selected Nodes">
+                    <svg viewBox="0 0 24 24" style="width: 22px; height: 22px; min-width: 22px; min-height: 22px; display: inline-block; vertical-align: middle;" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="2" y1="17" x2="22" y2="17" stroke-dasharray="3 2"/><rect x="8.5" y="13.5" width="7" height="7" fill="var(--fern-control-bg, #1a1a1a)" stroke="currentColor" stroke-width="1.7"/><line x1="8.5" y1="6.5" x2="15.5" y2="6.5" stroke-width="2.2"/></svg>
+                  </button>
                 </div>
               </div>
             </div>
@@ -419,10 +460,14 @@
           </div>
         </dialog>
       </main>
-      <footer class="site-footer">
-        <nav aria-label="Footer Navigation"><a href="/">Home</a> &bull; <a href="/about">About</a> &bull; <a href="/pricing">Pricing</a> &bull; <a href="https://discord.gg/C5nkWeqRsW" target="_blank" rel="noopener">Discord</a></nav>
-        <span>&copy; 2026 Phrond</span>
-      </footer>
+      {{site_footer}}
+    </div>
+    <div class="fern-mobile-blocker" role="status">
+      <div class="fern-mobile-blocker-panel">
+        <h1>Desktop screen required</h1>
+        <p>This tool is not available on smaller screens yet. Please open it on a larger screen to continue.</p>
+        <a href="/">Return to Phrond</a>
+      </div>
     </div>
     <script src="static/fern-draw.js" defer></script>
   </body>

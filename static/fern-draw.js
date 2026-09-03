@@ -2738,7 +2738,7 @@ function fern_renderPointHandles() {
   if (transform) {
     group.setAttribute("transform", transform);
   }
-  const handleScale = 1 / fernZoomLevel;
+  const handleSize = 6 / fernZoomLevel;
   const segmentPath = fern_selectedSegmentPath(refs);
   if (segmentPath) {
     const segment = document.createElementNS(FERN_SVG_NS, "path");
@@ -2769,12 +2769,12 @@ function fern_renderPointHandles() {
     if (isControl) {
       handle.setAttribute("cx", fern_formatNumber(ref.x));
       handle.setAttribute("cy", fern_formatNumber(ref.y));
-      handle.setAttribute("r", fern_formatNumber(1.1 * handleScale));
+      handle.setAttribute("r", fern_formatNumber(handleSize * 0.4));
     } else if (ref.pointMode === "corner") {
-      const radius = 2.1 * handleScale;
+      const radius = handleSize / 2;
       handle.setAttribute("points", `${fern_formatNumber(ref.x)},${fern_formatNumber(ref.y - radius)} ${fern_formatNumber(ref.x + radius)},${fern_formatNumber(ref.y)} ${fern_formatNumber(ref.x)},${fern_formatNumber(ref.y + radius)} ${fern_formatNumber(ref.x - radius)},${fern_formatNumber(ref.y)}`);
     } else {
-      const size = 3.6 * handleScale;
+      const size = handleSize;
       handle.setAttribute("x", fern_formatNumber(ref.x - size / 2));
       handle.setAttribute("y", fern_formatNumber(ref.y - size / 2));
       handle.setAttribute("width", fern_formatNumber(size));
@@ -2785,7 +2785,11 @@ function fern_renderPointHandles() {
     handle.setAttribute("data-point-index", String(index));
     group.append(handle);
   }
-  fernActiveSvg.append(group);
+  if (fernSelectedElement.parentElement) {
+    fernSelectedElement.parentElement.appendChild(group);
+  } else {
+    fernActiveSvg.append(group);
+  }
 }
 
 function fern_setPathPair(ref, x, y) {
@@ -3753,6 +3757,40 @@ function fern_duplicateSelected() {
   fern_commitHistory();
   fern_autoSaveLocal();
   fern_setEditorStatus(`Duplicated ${newElements.length} shape(s).`);
+}
+
+function fern_duplicateSelectedRadially() {
+  const elements = fern_getSelectedElements();
+  if (elements.length === 0 || !fernActiveSvg) {
+    fern_setEditorStatus("Select shapes to copy radially.");
+    return;
+  }
+  const countInput = fernEditor ? fernEditor.querySelector("[data-duplicate-count]") : null;
+  const count = Math.max(2, Math.min(64, Number.parseInt(countInput ? countInput.value : "6", 10) || 6));
+  const viewBox = fern_getViewBox();
+  const cx = viewBox.cx;
+  const cy = viewBox.cy;
+
+  const newElements = [];
+  for (let i = 1; i < count; i += 1) {
+    const angle = (360 / count) * i;
+    for (const element of elements) {
+      const clone = element.cloneNode(true);
+      clone.classList.remove("is-svg-selected");
+      if (element.parentElement) {
+        element.parentElement.appendChild(clone);
+      } else {
+        fernActiveSvg.appendChild(clone);
+      }
+      const existingTransform = clone.getAttribute("transform") || "";
+      clone.setAttribute("transform", `rotate(${fern_formatNumber(angle)} ${fern_formatNumber(cx)} ${fern_formatNumber(cy)}) ${existingTransform}`.trim());
+      newElements.push(clone);
+    }
+  }
+  fern_selectElements([...elements, ...newElements]);
+  fern_commitHistory();
+  fern_autoSaveLocal();
+  fern_setEditorStatus(`Created ${count} radial copies.`);
 }
 
 function fern_groupSelected() {
@@ -4912,7 +4950,8 @@ function fern_addShape(type) {
   }
 
   fern_beginHistory();
-  const element = document.createElementNS(FERN_SVG_NS, type);
+  const shapeTag = (type === "circle") ? "ellipse" : type;
+  const element = document.createElementNS(FERN_SVG_NS, shapeTag);
   element.setAttribute("stroke", "#fff");
   element.setAttribute("stroke-width", "1");
   element.setAttribute("fill", "none");
@@ -4922,15 +4961,11 @@ function fern_addShape(type) {
     element.setAttribute("y", "28");
     element.setAttribute("width", "44");
     element.setAttribute("height", "44");
-  } else if (type === "circle") {
+  } else if (type === "circle" || type === "ellipse") {
     element.setAttribute("cx", "50");
     element.setAttribute("cy", "50");
-    element.setAttribute("r", "22");
-  } else if (type === "ellipse") {
-    element.setAttribute("cx", "50");
-    element.setAttribute("cy", "50");
-    element.setAttribute("rx", "28");
-    element.setAttribute("ry", "18");
+    element.setAttribute("rx", "22");
+    element.setAttribute("ry", "22");
   } else if (type === "line") {
     element.setAttribute("x1", "25");
     element.setAttribute("y1", "50");
@@ -4999,6 +5034,18 @@ async function fern_setupEditor() {
         fern_handleTraceFile(file);
       }
       e.target.value = "";
+    });
+  }
+
+  const dupCountInput = fernEditor.querySelector("[data-duplicate-count]");
+  if (dupCountInput) {
+    dupCountInput.addEventListener("change", () => {
+      const val = Number.parseInt(dupCountInput.value, 10);
+      if (Number.isNaN(val) || val < 2) {
+        dupCountInput.value = "2";
+      } else if (val > 64) {
+        dupCountInput.value = "64";
+      }
     });
   }
 

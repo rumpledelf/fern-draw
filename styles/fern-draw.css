@@ -1715,7 +1715,17 @@ input[type="range"] {
   user-select: none;
 }
 
-/* Mode cursors */
+/* Mode cursors & hit testing */
+.icon-editor-svg:not(.is-mode-draw) path,
+.icon-editor-svg:not(.is-mode-draw) line,
+.icon-editor-svg:not(.is-mode-draw) polyline,
+.icon-editor-svg:not(.is-mode-draw) polygon,
+.icon-editor-svg:not(.is-mode-draw) rect,
+.icon-editor-svg:not(.is-mode-draw) circle,
+.icon-editor-svg:not(.is-mode-draw) ellipse {
+  pointer-events: all;
+}
+
 .icon-editor-svg.is-mode-pan,
 .icon-editor-svg.is-mode-pan > *,
 .icon-editor-svg.is-mode-draw,

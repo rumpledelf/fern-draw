@@ -24,6 +24,7 @@ function fern_autoSaveLocal() {
     const payload = {
       content,
       fileName: fernCurrentFileName,
+      accountAssetId: fernAccountAssetId || null,
       timestamp: Date.now(),
       traceBackdrop: fernTraceBackdrop,
       zoom: fernZoomLevel || 1,
@@ -49,6 +50,9 @@ function fern_loadAutoSavedDraft() {
     }
     const payload = JSON.parse(raw);
     if (payload && payload.content && payload.content.trim().length > 0) {
+      if (payload.accountAssetId) {
+        fernAccountAssetId = payload.accountAssetId;
+      }
       if (payload.traceBackdrop) {
         fernTraceBackdrop = { ...fernTraceBackdrop, ...payload.traceBackdrop };
         if (payload.traceBackdrop.anchor) {
@@ -680,23 +684,30 @@ function fern_selectableTarget(target, event = null) {
     return null;
   }
 
-  // 1. Gather all candidates under the click/pointer location if event coordinates are provided
+  // 1. Gather all candidates under and around the click/pointer location (with generous hit radius for thin lines)
   const candidateElements = [];
   if (event && typeof document.elementsFromPoint === "function" && typeof event.clientX === "number") {
-    const rawList = document.elementsFromPoint(event.clientX, event.clientY);
-    for (const el of rawList) {
-      if (!el || el === fernActiveSvg || !fernActiveSvg.contains(el)) continue;
-      if (
-        el.closest("[data-editor-handles]") ||
-        el.closest("[data-editor-grid]") ||
-        el.closest("[data-editor-backdrop]")
-      ) {
-        continue;
-      }
-      const tag = fern_getTagName(el);
-      if (FERN_SHAPE_ATTRS[tag] || tag === "circle" || tag === "g") {
-        if (!candidateElements.includes(el)) {
-          candidateElements.push(el);
+    const offsets = [
+      [0, 0],
+      [4, 0], [-4, 0], [0, 4], [0, -4],
+      [6, 6], [-6, 6], [6, -6], [-6, -6],
+    ];
+    for (const [ox, oy] of offsets) {
+      const rawList = document.elementsFromPoint(event.clientX + ox, event.clientY + oy);
+      for (const el of rawList) {
+        if (!el || el === fernActiveSvg || !fernActiveSvg.contains(el)) continue;
+        if (
+          el.closest("[data-editor-handles]") ||
+          el.closest("[data-editor-grid]") ||
+          el.closest("[data-editor-backdrop]")
+        ) {
+          continue;
+        }
+        const tag = fern_getTagName(el);
+        if (FERN_SHAPE_ATTRS[tag] || tag === "circle" || tag === "g") {
+          if (!candidateElements.includes(el)) {
+            candidateElements.push(el);
+          }
         }
       }
     }
@@ -726,44 +737,10 @@ function fern_selectableTarget(target, event = null) {
 
   // Sort leaf shapes by bounding box area ascending (most specific / smallest area first)
   leafShapes.sort((a, b) => fern_getElementArea(a) - fern_getElementArea(b));
+  const primaryLeaf = leafShapes[0] || candidateElements[0];
 
-  // Mode: SELECT GROUP (Select Group mode)
-  if (fernEditorMode === "select-group") {
-    // Collect all candidate <g> elements enclosing any of the candidates from innermost to outermost
-    const candidateGroups = [];
-    const elementsToTrace = leafShapes.length > 0 ? leafShapes : candidateElements;
-    for (const el of elementsToTrace) {
-      let current = el;
-      while (current && current !== fernActiveSvg) {
-        if (
-          current.tagName === "g" &&
-          !current.hasAttribute("data-editor-handles") &&
-          !current.hasAttribute("data-editor-grid") &&
-          !current.hasAttribute("data-editor-backdrop")
-        ) {
-          if (!candidateGroups.includes(current)) {
-            candidateGroups.push(current);
-          }
-        }
-        current = current.parentElement;
-      }
-    }
-
-    if (candidateGroups.length > 0) {
-      // If current selected element is already one of the candidate groups, cycle up/through the hierarchy
-      if (fernSelectedElement && candidateGroups.includes(fernSelectedElement) && candidateGroups.length > 1 && !event?.shiftKey) {
-        const currentIndex = candidateGroups.indexOf(fernSelectedElement);
-        return candidateGroups[(currentIndex + 1) % candidateGroups.length];
-      }
-      return candidateGroups[0];
-    }
-    // If no groups exist, fallback to leaf shape or candidate
-    return leafShapes[0] || candidateElements[0];
-  }
-
-  // Mode: SELECT NODE (Select Node mode)
+  // Mode: SELECT NODE (Direct Node tool - always selects individual leaf shape)
   if (fernEditorMode === "select-node") {
-    // In node select mode, always pick a leaf shape (preferring paths/shapes with nodes)
     if (leafShapes.length > 0) {
       if (fernSelectedElement && leafShapes.includes(fernSelectedElement) && leafShapes.length > 1 && !event?.shiftKey) {
         const currentIndex = leafShapes.indexOf(fernSelectedElement);
@@ -774,17 +751,22 @@ function fern_selectableTarget(target, event = null) {
     return candidateElements[0] || null;
   }
 
-  // Mode: SELECT (Select Shape mode) & other modes (pan/draw)
-  if (leafShapes.length > 0) {
-    // Sort from most specific (smallest area) to least specific (largest area, e.g. background rect)
-    if (fernSelectedElement && leafShapes.includes(fernSelectedElement) && leafShapes.length > 1 && !event?.shiftKey) {
-      const currentIndex = leafShapes.indexOf(fernSelectedElement);
-      return leafShapes[(currentIndex + 1) % leafShapes.length];
+  // Mode: SELECT GROUP (Explicit Group tool)
+  if (fernEditorMode === "select-group") {
+    let topmostGroup = null;
+    let current = primaryLeaf;
+    while (current && current !== fernActiveSvg) {
+      if (current.tagName === "g" && !current.hasAttribute("data-editor-handles") && !current.hasAttribute("data-editor-grid") && !current.hasAttribute("data-editor-backdrop")) {
+        topmostGroup = current;
+      }
+      current = current.parentElement;
     }
-    return leafShapes[0];
+    return topmostGroup || primaryLeaf;
   }
 
-  return candidateElements[0] || null;
+  // Mode: SELECT (Standard Select tool)
+  // Single-clicking directly selects the specific shape under cursor
+  return primaryLeaf;
 }
 
 function fern_clearHandles() {
@@ -940,55 +922,111 @@ function fern_getElementBoundingBox(element) {
   if (!element || !fernActiveSvg) {
     return { x: 0, y: 0, width: 0, height: 0, cx: 0, cy: 0 };
   }
+
+  let localBox = null;
   try {
     if (typeof element.getBBox === "function") {
       const bbox = element.getBBox();
       if (bbox && Number.isFinite(bbox.width) && Number.isFinite(bbox.height) && (bbox.width > 0 || bbox.height > 0)) {
-        return {
+        localBox = {
           x: bbox.x,
           y: bbox.y,
           width: Math.max(0.1, bbox.width),
           height: Math.max(0.1, bbox.height),
-          cx: bbox.x + bbox.width / 2,
-          cy: bbox.y + bbox.height / 2,
         };
       }
     }
   } catch (_e) {}
 
-  const tag = fern_getTagName(element);
-  if (tag === "rect") {
-    const x = fern_numericAttr(element, "x", 0);
-    const y = fern_numericAttr(element, "y", 0);
-    const w = fern_numericAttr(element, "width", 10);
-    const h = fern_numericAttr(element, "height", 10);
-    return { x, y, width: w, height: h, cx: x + w / 2, cy: y + h / 2 };
+  if (!localBox) {
+    const tag = fern_getTagName(element);
+    if (tag === "rect") {
+      const x = fern_numericAttr(element, "x", 0);
+      const y = fern_numericAttr(element, "y", 0);
+      const w = fern_numericAttr(element, "width", 10);
+      const h = fern_numericAttr(element, "height", 10);
+      localBox = { x, y, width: w, height: h };
+    } else if (tag === "circle") {
+      const cx = fern_numericAttr(element, "cx", 0);
+      const cy = fern_numericAttr(element, "cy", 0);
+      const r = fern_numericAttr(element, "r", 5);
+      localBox = { x: cx - r, y: cy - r, width: 2 * r, height: 2 * r };
+    } else if (tag === "ellipse") {
+      const cx = fern_numericAttr(element, "cx", 0);
+      const cy = fern_numericAttr(element, "cy", 0);
+      const rx = fern_numericAttr(element, "rx", 5);
+      const ry = fern_numericAttr(element, "ry", 5);
+      localBox = { x: cx - rx, y: cy - ry, width: 2 * rx, height: 2 * ry };
+    } else if (tag === "line") {
+      const x1 = fern_numericAttr(element, "x1", 0);
+      const y1 = fern_numericAttr(element, "y1", 0);
+      const x2 = fern_numericAttr(element, "x2", 10);
+      const y2 = fern_numericAttr(element, "y2", 10);
+      const minX = Math.min(x1, x2);
+      const minY = Math.min(y1, y2);
+      const w = Math.max(0.1, Math.abs(x2 - x1));
+      const h = Math.max(0.1, Math.abs(y2 - y1));
+      localBox = { x: minX, y: minY, width: w, height: h };
+    } else {
+      localBox = { x: 0, y: 0, width: 20, height: 20 };
+    }
   }
-  if (tag === "circle") {
-    const cx = fern_numericAttr(element, "cx", 0);
-    const cy = fern_numericAttr(element, "cy", 0);
-    const r = fern_numericAttr(element, "r", 5);
-    return { x: cx - r, y: cy - r, width: 2 * r, height: 2 * r, cx, cy };
-  }
-  if (tag === "ellipse") {
-    const cx = fern_numericAttr(element, "cx", 0);
-    const cy = fern_numericAttr(element, "cy", 0);
-    const rx = fern_numericAttr(element, "rx", 5);
-    const ry = fern_numericAttr(element, "ry", 5);
-    return { x: cx - rx, y: cy - ry, width: 2 * rx, height: 2 * ry, cx, cy };
-  }
-  if (tag === "line") {
-    const x1 = fern_numericAttr(element, "x1", 0);
-    const y1 = fern_numericAttr(element, "y1", 0);
-    const x2 = fern_numericAttr(element, "x2", 10);
-    const y2 = fern_numericAttr(element, "y2", 10);
-    const minX = Math.min(x1, x2);
-    const minY = Math.min(y1, y2);
-    const w = Math.max(0.1, Math.abs(x2 - x1));
-    const h = Math.max(0.1, Math.abs(y2 - y1));
-    return { x: minX, y: minY, width: w, height: h, cx: minX + w / 2, cy: minY + h / 2 };
-  }
-  return { x: 0, y: 0, width: 20, height: 20, cx: 10, cy: 10 };
+
+  // Transform localBox to root SVG canvas coordinate space using CTM
+  try {
+    if (element.getScreenCTM && fernActiveSvg.getScreenCTM) {
+      const elemCTM = element.getScreenCTM();
+      const rootCTM = fernActiveSvg.getScreenCTM();
+      if (elemCTM && rootCTM) {
+        const matrix = rootCTM.inverse().multiply(elemCTM);
+        const pt = (fernActiveSvg.createSVGPoint ? fernActiveSvg.createSVGPoint() : new DOMPoint());
+
+        const corners = [
+          { x: localBox.x, y: localBox.y },
+          { x: localBox.x + localBox.width, y: localBox.y },
+          { x: localBox.x + localBox.width, y: localBox.y + localBox.height },
+          { x: localBox.x, y: localBox.y + localBox.height },
+        ];
+
+        let minX = Infinity;
+        let maxX = -Infinity;
+        let minY = Infinity;
+        let maxY = -Infinity;
+
+        for (const c of corners) {
+          pt.x = c.x;
+          pt.y = c.y;
+          const tp = pt.matrixTransform(matrix);
+          if (tp.x < minX) minX = tp.x;
+          if (tp.x > maxX) maxX = tp.x;
+          if (tp.y < minY) minY = tp.y;
+          if (tp.y > maxY) maxY = tp.y;
+        }
+
+        if (Number.isFinite(minX) && Number.isFinite(minY) && Number.isFinite(maxX) && Number.isFinite(maxY)) {
+          const w = Math.max(0.1, maxX - minX);
+          const h = Math.max(0.1, maxY - minY);
+          return {
+            x: minX,
+            y: minY,
+            width: w,
+            height: h,
+            cx: minX + w / 2,
+            cy: minY + h / 2,
+          };
+        }
+      }
+    }
+  } catch (_e) {}
+
+  return {
+    x: localBox.x,
+    y: localBox.y,
+    width: localBox.width,
+    height: localBox.height,
+    cx: localBox.x + localBox.width / 2,
+    cy: localBox.y + localBox.height / 2,
+  };
 }
 
 function fern_getCombinedBoundingBox(elements) {
@@ -1469,7 +1507,7 @@ function fern_renderColorSetAccess() {
     saveAccount.hidden = !fernSessionAuthenticated;
   }
   if (accountLink) {
-    accountLink.hidden = !fernSessionAuthenticated;
+    accountLink.hidden = false;
   }
   accountActions.forEach((element) => {
     element.classList.toggle("is-disabled", !fernSessionAuthenticated);
@@ -3968,13 +4006,25 @@ function fern_handlePointerDown(event) {
       }
     }
 
-    const currentSelected = fern_getSelectedElements();
-    fern_beginHistory();
+    let elementsToDrag = fern_getSelectedElements();
+    if (event.altKey) {
+      const clones = [];
+      for (const el of elementsToDrag) {
+        const clone = el.cloneNode(true);
+        clone.classList.remove("is-svg-selected");
+        el.after(clone);
+        clones.push(clone);
+      }
+      fern_selectElements(clones);
+      elementsToDrag = clones;
+    }
+
     fernDragState = {
-      elements: currentSelected,
+      elements: elementsToDrag,
       startX: point.x,
       startY: point.y,
-      initialAttrs: currentSelected.map((el) => ({ el, original: fern_getOriginalAttrs(el) })),
+      initialAttrs: elementsToDrag.map((el) => ({ el, original: fern_getOriginalAttrs(el) })),
+      moved: false,
     };
     fernActiveSvg.setPointerCapture(event.pointerId);
     return;
@@ -4146,6 +4196,14 @@ function fern_handlePointerMove(event) {
   const dx = fern_snap(pointerPoint.x - fernDragState.startX);
   const dy = fern_snap(pointerPoint.y - fernDragState.startY);
 
+  if (!fernDragState.moved) {
+    if (Math.hypot(dx, dy) < 3) {
+      return;
+    }
+    fern_beginHistory();
+    fernDragState.moved = true;
+  }
+
   for (const { el, original } of fernDragState.initialAttrs) {
     fern_moveElement(el, dx, dy, original);
   }
@@ -4220,22 +4278,64 @@ function fern_handlePointerUp() {
   }
 
   if (fernPointDragState) {
+    const wasMoved = fernPointDragState.moved;
     fernPointDragState = null;
-    fern_commitHistory();
-    fern_autoSaveLocal();
-    fern_renderInspector();
+    if (wasMoved) {
+      fern_commitHistory();
+      fern_autoSaveLocal();
+      fern_renderInspector();
+    }
     fern_renderPointHandles();
   }
 
   if (fernDragState) {
+    const wasMoved = fernDragState.moved;
     fernDragState = null;
-    fern_commitHistory();
-    fern_autoSaveLocal();
-    fern_renderInspector();
+    if (wasMoved) {
+      fern_commitHistory();
+      fern_autoSaveLocal();
+      fern_renderInspector();
+    }
     if (fernEditorMode === "select-node") {
       fern_renderPointHandles();
     } else {
       fern_renderSelectionBox();
+    }
+  }
+}
+
+function fern_handleDoubleClick(event) {
+  if (!fernActiveSvg) return;
+  const target = fern_selectableTarget(event.target, event);
+  if (target) {
+    if (target.tagName === "g") {
+      // Drill down into group: select the child leaf shape directly under cursor
+      const candidateElements = [];
+      if (typeof document.elementsFromPoint === "function") {
+        const list = document.elementsFromPoint(event.clientX, event.clientY);
+        for (const el of list) {
+          if (el && target.contains(el) && el !== target && el.tagName !== "g" && !el.closest("[data-editor-handles]")) {
+            candidateElements.push(el);
+          }
+        }
+      }
+      if (candidateElements.length > 0) {
+        candidateElements.sort((a, b) => fern_getElementArea(a) - fern_getElementArea(b));
+        fern_selectElements([candidateElements[0]]);
+        return;
+      }
+    } else {
+      // Double clicked an individual shape/path -> enter Node editing mode (A)
+      fern_selectElements([target]);
+      fern_setEditorMode("select-node");
+      return;
+    }
+  } else {
+    // Double clicked empty canvas space
+    if (fernEditorMode === "select-node") {
+      fern_setEditorMode("select");
+    } else if (fernSelectedElement) {
+      fern_selectElements([]);
     }
   }
 }
@@ -4269,24 +4369,43 @@ function fern_sanitizeSvg(fernSvg) {
 }
 
 function fern_importSvg(content) {
+  if (!content || typeof content !== "string") {
+    throw new Error("SVG content is empty.");
+  }
+  let cleanContent = content.trim();
+  if (!cleanContent.includes("xmlns=") && /<svg\b/i.test(cleanContent)) {
+    cleanContent = cleanContent.replace(/<svg\b/i, '<svg xmlns="http://www.w3.org/2000/svg"');
+  }
+
   const parser = new DOMParser();
-  const documentSvg = parser.parseFromString(content, "image/svg+xml");
-  const parserError = documentSvg.querySelector("parsererror");
+  let documentSvg = parser.parseFromString(cleanContent, "image/svg+xml");
+  let parserError = documentSvg.querySelector("parsererror");
+
+  if (parserError) {
+    const htmlDoc = parser.parseFromString(cleanContent, "text/html");
+    const svgElem = htmlDoc.querySelector("svg");
+    if (svgElem) {
+      documentSvg = parser.parseFromString(svgElem.outerHTML.replace(/<svg\b/i, '<svg xmlns="http://www.w3.org/2000/svg"'), "image/svg+xml");
+      parserError = documentSvg.querySelector("parsererror");
+    }
+  }
+
   if (parserError) {
     throw new Error("SVG could not be parsed.");
   }
-  if (
-    documentSvg.documentElement.localName.toLowerCase() !== "svg" ||
-    documentSvg.documentElement.namespaceURI !== FERN_SVG_NS
-  ) {
+
+  const rootSvg = documentSvg.querySelector("svg") || (documentSvg.documentElement && documentSvg.documentElement.localName.toLowerCase() === "svg" ? documentSvg.documentElement : null);
+  if (!rootSvg) {
     throw new Error("The selected file is not an SVG document.");
   }
 
-  const nextSvg = fern_sanitizeSvg(document.importNode(documentSvg.documentElement, true));
+  const nextSvg = fern_sanitizeSvg(document.importNode(rootSvg, true));
   nextSvg.classList.add("icon-editor-svg");
   nextSvg.setAttribute("tabindex", "0");
   if (!nextSvg.getAttribute("viewBox")) {
-    nextSvg.setAttribute("viewBox", "0 0 100 100");
+    const width = fern_numericAttr(nextSvg, "width", 100);
+    const height = fern_numericAttr(nextSvg, "height", 100);
+    nextSvg.setAttribute("viewBox", `0 0 ${width} ${height}`);
   }
 
   const canvas = fernEditor.querySelector("[data-svg-canvas]");
@@ -4312,6 +4431,7 @@ function fern_importSvg(content) {
   fernActiveSvg.addEventListener("pointermove", fern_handlePointerMove);
   fernActiveSvg.addEventListener("pointerup", fern_handlePointerUp);
   fernActiveSvg.addEventListener("pointercancel", fern_handlePointerUp);
+  fernActiveSvg.addEventListener("dblclick", fern_handleDoubleClick);
   fern_renderInspector();
 }
 
@@ -5238,23 +5358,39 @@ async function fern_setupEditor() {
       return;
     }
 
-    if (fernDrawPathMode && (event.key === "Escape" || event.key === "Enter")) {
-      event.preventDefault();
-      fern_finishDrawPath(event.key === "Enter");
-      return;
-    }
-
     if (event.code === "Space" && fernEditor.contains(target)) {
       fernSpacePressed = true;
       event.preventDefault();
       return;
     }
 
-    if (event.key === "Escape" && fernAddNodeMode) {
-      fernAddNodeMode = false;
-      fernActiveSvg.classList.remove("is-adding-node");
-      fern_setEditorStatus("Add node cancelled.");
-      return;
+    if (event.key === "Escape") {
+      if (fernDrawPathMode) {
+        event.preventDefault();
+        fern_finishDrawPath(false);
+        return;
+      }
+      if (fernAddNodeMode) {
+        fernAddNodeMode = false;
+        fernActiveSvg.classList.remove("is-adding-node");
+        fern_setEditorStatus("Add node cancelled.");
+        return;
+      }
+      if (fernEditorMode === "select-node") {
+        event.preventDefault();
+        fern_setEditorMode("select");
+        return;
+      }
+      if (fernSelectedElement && fernSelectedElement.parentElement && fernSelectedElement.parentElement.tagName === "g" && fernSelectedElement.parentElement !== fernActiveSvg) {
+        event.preventDefault();
+        fern_selectElements([fernSelectedElement.parentElement]);
+        return;
+      }
+      if (fern_getSelectedElements().length > 0) {
+        event.preventDefault();
+        fern_selectElements([]);
+        return;
+      }
     }
 
     const modifier = event.metaKey || event.ctrlKey;

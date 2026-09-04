@@ -17,6 +17,17 @@ php artisan serve
 
 Then access Draw at `http://127.0.0.1:8000/tools/draw/`.
 
+## Selection tools
+
+Draw separates navigation from selection:
+
+- **Hand (H)** pans the canvas without changing the current selection.
+- **Select shape or nodes (A)** selects individual shapes and exposes their editable nodes.
+- **Select group (G)** selects the nearest containing SVG group.
+- **Marquee select (V)** selects shapes whose complete bounds are contained by the dragged box. Hold Shift to add or remove shapes from the selection.
+
+Press the arrow keys to nudge selected shapes or nodes by one screen pixel. Hold Shift while nudging to move by ten screen pixels. Hold Space to pan temporarily while using another tool.
+
 ### Tests
 
 Run unit tests with:

@@ -30,7 +30,7 @@ function fern_autoSaveLocal() {
       zoom: fernZoomLevel || 1,
       scrollLeft: stage ? stage.scrollLeft : 0,
       scrollTop: stage ? stage.scrollTop : 0,
-      mode: fernEditorMode || "select",
+      mode: fernEditorMode || "pan",
     };
     localStorage.setItem(FERN_AUTOSAVE_KEY, JSON.stringify(payload));
   } catch (_e) {}
@@ -101,7 +101,9 @@ const FERN_SHAPE_ATTRS = {
 let fernActiveSvg = null;
 let fernSelectedElement = null;
 let fernSelectedElements = [];
-let fernEditorMode = "select"; // "select" | "select-group" | "select-node" | "draw"
+let fernLastSelectedGroup = null;
+let fernLastSelectedShape = null;
+let fernEditorMode = "pan"; // "pan" | "select" | "select-node" | "select-group" | "draw"
 let fernMarqueeState = null;
 let fernResizeState = null;
 let fernTraceBackdrop = {
@@ -338,10 +340,28 @@ function fern_setEditorMode(mode) {
     fernActiveSvg.classList.add(`is-mode-${mode}`);
   }
 
-  if (mode === "pan" || mode === "draw") {
-    fern_renderSelectionBox(fern_getSelectedElements());
-    fern_setEditorStatus("Hand tool: drag canvas to pan around, or click any shape to select.");
+  if (mode === "pan") {
+    fern_clearHandles();
+    fern_setEditorStatus("Hand tool: drag anywhere on the canvas to pan.");
+  } else if (mode === "draw") {
+    fern_clearHandles();
+    fern_setEditorStatus("Draw path mode: click to add points.");
+  } else if (mode === "select-group") {
+    if (fernLastSelectedGroup && fernActiveSvg.contains(fernLastSelectedGroup)) {
+      fern_selectElements([fernLastSelectedGroup]);
+    } else if (fernSelectedElement) {
+      const group = fern_nearestSelectableGroup(fernSelectedElement) || fernSelectedElement;
+      fern_selectElements([group]);
+    } else {
+      fern_renderSelectionBox(fern_getSelectedElements());
+    }
+    fern_setEditorStatus("Group select: click a shape to select its nearest containing group.");
   } else if (mode === "select-node") {
+    if (fernLastSelectedShape && fernActiveSvg.contains(fernLastSelectedShape)) {
+      fern_selectElements([fernLastSelectedShape]);
+    } else if (fernSelectedElement && fern_getTagName(fernSelectedElement) === "g") {
+      fern_selectElements([]);
+    }
     if (fernSelectedElement) {
       fern_renderPointHandles();
       fern_setEditorStatus("Node select mode: click nodes to edit or drag a box to select multiple nodes.");
@@ -349,12 +369,15 @@ function fern_setEditorMode(mode) {
       fern_clearHandles();
       fern_setEditorStatus("Node select mode: click a shape on canvas to edit its path nodes.");
     }
-  } else if (mode === "select-group") {
-    fern_renderSelectionBox(fern_getSelectedElements());
-    fern_setEditorStatus("Group select mode: clicking shapes selects their entire containing group.");
   } else {
-    fern_renderSelectionBox(fern_getSelectedElements());
-    fern_setEditorStatus("Select mode: click a shape, drag a selection box, or resize with handles.");
+    if (fernLastSelectedShape && fernActiveSvg.contains(fernLastSelectedShape)) {
+      fern_selectElements([fernLastSelectedShape]);
+    } else if (fernLastSelectedGroup && fernActiveSvg.contains(fernLastSelectedGroup)) {
+      fern_selectElements([fernLastSelectedGroup]);
+    } else {
+      fern_renderSelectionBox(fern_getSelectedElements());
+    }
+    fern_setEditorStatus("Marquee select: drag a box to select every shape it intersects.");
   }
 }
 
@@ -423,7 +446,21 @@ function fern_finishDrawPath(closed = true) {
 }
 
 function fern_snap(value) {
-  return Math.round(value);
+  return Number.isFinite(value) ? Math.round(value * 10000) / 10000 : 0;
+}
+
+function fern_getNudgeStep(shiftKey = false) {
+  const basePixels = shiftKey ? 10 : 1;
+  try {
+    const ctm = fernActiveSvg?.getScreenCTM();
+    if (ctm) {
+      const screenScale = Math.hypot(ctm.a, ctm.b);
+      if (Number.isFinite(screenScale) && screenScale > 0) {
+        return basePixels / screenScale;
+      }
+    }
+  } catch (_e) {}
+  return basePixels / Math.max(0.1, fernZoomLevel || 1);
 }
 
 function fern_setEditorStatus(message) {
@@ -440,7 +477,7 @@ function fern_setCoordinateReadout(x = null, y = null) {
   }
 
   if (Number.isFinite(x) && Number.isFinite(y)) {
-    readout.textContent = `${fern_snap(x)}, ${fern_snap(y)}`;
+    readout.textContent = `${fern_formatNumber(x)}, ${fern_formatNumber(y)}`;
   } else {
     readout.textContent = "--, --";
   }
@@ -452,7 +489,9 @@ function fern_editableElements(svg = fernActiveSvg) {
   }
 
   return [...svg.querySelectorAll(Object.keys(FERN_SHAPE_ATTRS).join(","))].filter((element) => (
-    !element.closest("[data-editor-handles]") && !element.closest("[data-editor-grid]")
+    !element.closest("[data-editor-handles]") &&
+    !element.closest("[data-editor-grid]") &&
+    !element.closest("[data-editor-marquee]")
   ));
 }
 
@@ -462,7 +501,7 @@ function fern_captureEditorState() {
   }
 
   const clone = fernActiveSvg.cloneNode(true);
-  clone.querySelectorAll("[data-editor-handles], [data-editor-grid]").forEach((element) => element.remove());
+  clone.querySelectorAll("[data-editor-handles], [data-editor-grid], [data-editor-marquee]").forEach((element) => element.remove());
   clone.querySelectorAll(".is-svg-selected").forEach((element) => element.classList.remove("is-svg-selected"));
   const elements = fern_editableElements();
 
@@ -604,7 +643,12 @@ function fern_getTagName(element) {
 }
 
 function fern_formatNumber(value) {
-  return Number.parseFloat(value.toFixed(2)).toString();
+  if (!Number.isFinite(value)) return "0";
+  return Number.parseFloat(value.toFixed(4)).toString();
+}
+
+function fern_formatTransformNumber(value) {
+  return Number.parseFloat(value.toFixed(8)).toString();
 }
 
 function fern_numericAttr(element, attr, fallback = 0) {
@@ -679,6 +723,107 @@ function fern_getElementArea(element) {
   }
 }
 
+function fern_isDocumentBackground(element) {
+  if (!element || !fernActiveSvg) return false;
+  const viewBox = fern_getViewBox();
+  const box = fern_getElementBoundingBox(element);
+  const vbArea = (viewBox.width || 1) * (viewBox.height || 1);
+  const elemArea = (box.width || 0) * (box.height || 0);
+  return elemArea >= vbArea * 0.85;
+}
+
+function fern_nearestSelectableGroup(element) {
+  let current = element ? element.parentElement : null;
+  while (current && current !== fernActiveSvg) {
+    if (
+      fern_getTagName(current) === "g" &&
+      !current.hasAttribute("data-editor-handles") &&
+      !current.hasAttribute("data-editor-grid") &&
+      !current.hasAttribute("data-editor-backdrop")
+    ) {
+      if (!fern_isDocumentBackground(current)) {
+        return current;
+      }
+    }
+    current = current.parentElement;
+  }
+  return null;
+}
+
+function fern_pointToSegmentDistance(px, py, x1, y1, x2, y2) {
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+  const lengthSquared = dx * dx + dy * dy;
+  if (lengthSquared === 0) return Math.hypot(px - x1, py - y1);
+  const ratio = Math.max(0, Math.min(1, ((px - x1) * dx + (py - y1) * dy) / lengthSquared));
+  return Math.hypot(px - (x1 + ratio * dx), py - (y1 + ratio * dy));
+}
+
+function fern_localPointToScreen(element, x, y) {
+  try {
+    const point = fernActiveSvg.createSVGPoint();
+    point.x = x;
+    point.y = y;
+    const matrix = element.getScreenCTM();
+    if (matrix) return point.matrixTransform(matrix);
+  } catch (_e) {}
+  return null;
+}
+
+function fern_geometryDistanceFromPointer(element, event) {
+  const tag = fern_getTagName(element);
+  const pointerX = event.clientX;
+  const pointerY = event.clientY;
+  let points = [];
+
+  if (tag === "line") {
+    points = [
+      fern_localPointToScreen(element, fern_numericAttr(element, "x1"), fern_numericAttr(element, "y1")),
+      fern_localPointToScreen(element, fern_numericAttr(element, "x2"), fern_numericAttr(element, "y2")),
+    ];
+  } else if (tag === "polyline" || tag === "polygon") {
+    const values = (element.getAttribute("points") || "").trim().split(/[\s,]+/).map(Number).filter(Number.isFinite);
+    for (let index = 0; index + 1 < values.length; index += 2) {
+      points.push(fern_localPointToScreen(element, values[index], values[index + 1]));
+    }
+    if (tag === "polygon" && points.length > 1) points.push(points[0]);
+  } else if (["path", "rect", "circle", "ellipse"].includes(tag) && typeof element.getTotalLength === "function") {
+    try {
+      const bounds = element.getBoundingClientRect();
+      const padding = 10;
+      if (
+        pointerX < bounds.left - padding || pointerX > bounds.right + padding ||
+        pointerY < bounds.top - padding || pointerY > bounds.bottom + padding
+      ) {
+        return Infinity;
+      }
+      const length = element.getTotalLength();
+      const matrix = element.getScreenCTM();
+      const scale = matrix ? (Math.hypot(matrix.a, matrix.b) + Math.hypot(matrix.c, matrix.d)) / 2 : 1;
+      const samples = Math.max(2, Math.min(600, Math.ceil(length * scale / 4)));
+      for (let index = 0; index <= samples; index += 1) {
+        const point = element.getPointAtLength((length * index) / samples);
+        points.push(fern_localPointToScreen(element, point.x, point.y));
+      }
+    } catch (_e) {
+      return Infinity;
+    }
+  } else {
+    return Infinity;
+  }
+
+  points = points.filter(Boolean);
+  let distance = Infinity;
+  for (let index = 1; index < points.length; index += 1) {
+    distance = Math.min(distance, fern_pointToSegmentDistance(
+      pointerX, pointerY,
+      points[index - 1].x, points[index - 1].y,
+      points[index].x, points[index].y,
+    ));
+  }
+  return distance;
+}
+
 function fern_selectableTarget(target, event = null) {
   if (!fernActiveSvg) {
     return null;
@@ -686,12 +831,15 @@ function fern_selectableTarget(target, event = null) {
 
   // 1. Gather all candidates under and around the click/pointer location (with generous hit radius for thin lines)
   const candidateElements = [];
+  const candidateDistances = new Map();
   if (event && typeof document.elementsFromPoint === "function" && typeof event.clientX === "number") {
-    const offsets = [
-      [0, 0],
-      [4, 0], [-4, 0], [0, 4], [0, -4],
-      [6, 6], [-6, 6], [6, -6], [-6, -6],
-    ];
+    const offsets = [[0, 0]];
+    for (let x = -8; x <= 8; x += 4) {
+      for (let y = -8; y <= 8; y += 4) {
+        if (x !== 0 || y !== 0) offsets.push([x, y]);
+      }
+    }
+    offsets.sort((first, second) => Math.hypot(...first) - Math.hypot(...second));
     for (const [ox, oy] of offsets) {
       const rawList = document.elementsFromPoint(event.clientX + ox, event.clientY + oy);
       for (const el of rawList) {
@@ -707,8 +855,17 @@ function fern_selectableTarget(target, event = null) {
         if (FERN_SHAPE_ATTRS[tag] || tag === "circle" || tag === "g") {
           if (!candidateElements.includes(el)) {
             candidateElements.push(el);
+            candidateDistances.set(el, Math.hypot(ox, oy));
           }
         }
+      }
+    }
+
+    for (const element of fern_editableElements()) {
+      const distance = fern_geometryDistanceFromPointer(element, event);
+      if (distance <= 8) {
+        if (!candidateElements.includes(element)) candidateElements.push(element);
+        candidateDistances.set(element, Math.min(candidateDistances.get(element) ?? Infinity, distance));
       }
     }
   }
@@ -721,6 +878,7 @@ function fern_selectableTarget(target, event = null) {
     ) {
       if (!candidateElements.includes(target)) {
         candidateElements.push(target);
+        candidateDistances.set(target, 0);
       }
     }
   }
@@ -735,9 +893,23 @@ function fern_selectableTarget(target, event = null) {
     return tag !== "g" && (FERN_SHAPE_ATTRS[tag] || tag === "circle");
   });
 
-  // Sort leaf shapes by bounding box area ascending (most specific / smallest area first)
-  leafShapes.sort((a, b) => fern_getElementArea(a) - fern_getElementArea(b));
-  const primaryLeaf = leafShapes[0] || candidateElements[0];
+  // Separate foreground shapes from full-document background elements
+  const foregroundShapes = leafShapes.filter((el) => !fern_isDocumentBackground(el));
+  const candidatePool = foregroundShapes.length > 0 ? foregroundShapes : leafShapes;
+
+  // Prefer the smaller, specific foreground shape, breaking ties by pointer distance
+  candidatePool.sort((a, b) => {
+    const distA = candidateDistances.get(a) ?? Infinity;
+    const distB = candidateDistances.get(b) ?? Infinity;
+    const areaA = fern_getElementArea(a);
+    const areaB = fern_getElementArea(b);
+    // If one shape is significantly smaller (e.g. icon/path vs canvas), prefer the smaller shape
+    if (Math.abs(areaA - areaB) > 20) {
+      return areaA - areaB;
+    }
+    return (distA - distB) || (areaA - areaB);
+  });
+  const primaryLeaf = candidatePool[0] || (candidateElements.filter((el) => !fern_isDocumentBackground(el))[0]) || candidateElements[0];
 
   // Mode: SELECT NODE (Direct Node tool - always selects individual leaf shape)
   if (fernEditorMode === "select-node") {
@@ -753,19 +925,11 @@ function fern_selectableTarget(target, event = null) {
 
   // Mode: SELECT GROUP (Explicit Group tool)
   if (fernEditorMode === "select-group") {
-    let topmostGroup = null;
-    let current = primaryLeaf;
-    while (current && current !== fernActiveSvg) {
-      if (current.tagName === "g" && !current.hasAttribute("data-editor-handles") && !current.hasAttribute("data-editor-grid") && !current.hasAttribute("data-editor-backdrop")) {
-        topmostGroup = current;
-      }
-      current = current.parentElement;
-    }
-    return topmostGroup || primaryLeaf;
+    return fern_nearestSelectableGroup(primaryLeaf) || primaryLeaf;
   }
 
-  // Mode: SELECT (Standard Select tool)
-  // Single-clicking directly selects the specific shape under cursor
+  // Mode: SELECT (Standard Select / Marquee tool)
+  // Select individual leaf shape
   return primaryLeaf;
 }
 
@@ -777,6 +941,78 @@ function fern_clearHandles() {
   for (const group of fernActiveSvg.querySelectorAll("[data-editor-handles]")) {
     group.remove();
   }
+}
+
+function fern_clearMarquee() {
+  if (fernActiveSvg) {
+    fernActiveSvg.querySelectorAll("[data-editor-marquee]").forEach((element) => element.remove());
+  }
+}
+
+function fern_renderMarqueeBox(x, y, width, height) {
+  fern_clearMarquee();
+  if (!fernActiveSvg) return;
+  const rect = document.createElementNS(FERN_SVG_NS, "rect");
+  rect.setAttribute("x", fern_formatNumber(x));
+  rect.setAttribute("y", fern_formatNumber(y));
+  rect.setAttribute("width", fern_formatNumber(width));
+  rect.setAttribute("height", fern_formatNumber(height));
+  rect.setAttribute("class", "svg-marquee-box");
+  rect.setAttribute("data-editor-marquee", "");
+  fernActiveSvg.append(rect);
+}
+
+function fern_elementPointToCanvas(element, x, y) {
+  try {
+    const point = fernActiveSvg.createSVGPoint();
+    point.x = x;
+    point.y = y;
+    const matrix = fern_elementToCanvasMatrix(element);
+    if (matrix) return point.matrixTransform(matrix);
+  } catch (_e) {}
+  return { x, y };
+}
+
+function fern_elementToCanvasMatrix(element) {
+  try {
+    const elementMatrix = element?.getScreenCTM();
+    const canvasMatrix = fernActiveSvg?.getScreenCTM();
+    if (elementMatrix && canvasMatrix) {
+      return canvasMatrix.inverse().multiply(elementMatrix);
+    }
+  } catch (_e) {}
+  return null;
+}
+
+function fern_canvasDeltaToElement(element, dx, dy) {
+  try {
+    const parent = element?.parentElement;
+    if (parent && parent !== fernActiveSvg) {
+      const matrix = fern_elementToCanvasMatrix(parent);
+      if (matrix) {
+        const inv = matrix.inverse();
+        const localDx = inv.a * dx + inv.c * dy;
+        const localDy = inv.b * dx + inv.d * dy;
+        if (Number.isFinite(localDx) && Number.isFinite(localDy)) {
+          return { dx: localDx, dy: localDy };
+        }
+      }
+    }
+  } catch (_e) {}
+  return { dx, dy };
+}
+
+function fern_screenPixelsToElementUnits(element, pixels) {
+  try {
+    const matrix = element?.getScreenCTM();
+    if (matrix) {
+      const scaleX = Math.hypot(matrix.a, matrix.b);
+      const scaleY = Math.hypot(matrix.c, matrix.d);
+      const scale = (scaleX + scaleY) / 2;
+      if (Number.isFinite(scale) && scale > 0) return pixels / scale;
+    }
+  } catch (_e) {}
+  return pixels / Math.max(0.25, fernZoomLevel || 1);
 }
 
 function fern_calculateGridStep(viewDim) {
@@ -898,12 +1134,26 @@ function fern_selectElements(elements, addToSelection = false) {
   }
 
   fernSelectedElement = fernSelectedElements[0] || null;
+  if (fernSelectedElement) {
+    if (fern_getTagName(fernSelectedElement) === "g") {
+      fernLastSelectedGroup = fernSelectedElement;
+    } else {
+      fernLastSelectedShape = fernSelectedElement;
+      const group = fern_nearestSelectableGroup(fernSelectedElement);
+      if (group) {
+        fernLastSelectedGroup = group;
+      }
+    }
+  }
+
   fernSelectedPointIndex = null;
   fernSelectedNodeIndices = new Set();
 
   fern_clearHandles();
 
-  if (fernEditorMode === "select-node") {
+  if (fernEditorMode === "pan" || fernEditorMode === "draw") {
+    // Keep handles cleared for neutral pan/draw mode
+  } else if (fernEditorMode === "select-node") {
     fern_renderPointHandles();
   } else {
     fern_renderSelectionBox(fernSelectedElements);
@@ -1088,7 +1338,8 @@ function fern_renderSelectionBox(elements = fern_getSelectedElements()) {
   rect.setAttribute("class", "svg-bounding-box");
   group.append(rect);
 
-  const handleSize = 6 / fernZoomLevel;
+  const handleSize = 8 / Math.max(0.25, fernZoomLevel || 1);
+  const hitSize = 18 / Math.max(0.25, fernZoomLevel || 1);
   const half = handleSize / 2;
 
   const handlePositions = [
@@ -1103,6 +1354,15 @@ function fern_renderSelectionBox(elements = fern_getSelectedElements()) {
   ];
 
   for (const pos of handlePositions) {
+    const hitTarget = document.createElementNS(FERN_SVG_NS, "rect");
+    hitTarget.setAttribute("x", fern_formatNumber(pos.x - hitSize / 2));
+    hitTarget.setAttribute("y", fern_formatNumber(pos.y - hitSize / 2));
+    hitTarget.setAttribute("width", fern_formatNumber(hitSize));
+    hitTarget.setAttribute("height", fern_formatNumber(hitSize));
+    hitTarget.setAttribute("class", `svg-resize-hit svg-resize-handle-${pos.dir}`);
+    hitTarget.setAttribute("data-resize-handle", pos.dir);
+    group.append(hitTarget);
+
     const handle = document.createElementNS(FERN_SVG_NS, "rect");
     handle.setAttribute("x", fern_formatNumber(pos.x - half));
     handle.setAttribute("y", fern_formatNumber(pos.y - half));
@@ -1258,19 +1518,22 @@ function fern_setToolbarColor(role, value, updateDefaults = true) {
     fern_setEditorStatus(`${role === "fill" ? "Fill" : "Stroke"} color set for the next shape.`);
     return;
   }
-  if (!fernSelectedElement) {
+  const targets = fern_getSelectedElements();
+  if (targets.length === 0) {
     fern_setEditorStatus(`Select a shape to edit its ${role} color.`);
     return;
   }
   fern_beginHistory();
-  if (fernToolbarEditSource === "selection-gradient-stop1") {
-    const info = fern_getGradientInfo(fernSelectedElement);
-    fern_setLinearGradient(fernSelectedElement, color, info.stop2, info.angle);
-  } else if (fernToolbarEditSource === "selection-gradient-stop2") {
-    const info = fern_getGradientInfo(fernSelectedElement);
-    fern_setLinearGradient(fernSelectedElement, info.stop1, color, info.angle);
-  } else {
-    fernSelectedElement.setAttribute(role, color);
+  for (const el of targets) {
+    if (fernToolbarEditSource === "selection-gradient-stop1") {
+      const info = fern_getGradientInfo(el);
+      fern_setLinearGradient(el, color, info.stop2, info.angle);
+    } else if (fernToolbarEditSource === "selection-gradient-stop2") {
+      const info = fern_getGradientInfo(el);
+      fern_setLinearGradient(el, info.stop1, color, info.angle);
+    } else {
+      el.setAttribute(role, color);
+    }
   }
   fern_commitHistory();
   fern_autoSaveLocal();
@@ -1868,10 +2131,34 @@ function fern_renderInspector() {
 
   const selectedElements = fern_getSelectedElements();
   if (selectedElements.length > 1) {
+    const first = selectedElements[0];
+    const fillVal = first.getAttribute("fill") || "";
+    const fillIsNone = fillVal === "none";
+    const gradInfo = fern_getGradientInfo(first);
+    const isGradient = gradInfo.isGradient;
+    const fillHex = gradInfo.stop1;
+    const gradStop2 = gradInfo.stop2;
+
+    const strokeVal = first.getAttribute("stroke") || "";
+    const strokeIsNone = strokeVal === "none" || strokeVal === "";
+    const strokeHex = fern_colorToHex(strokeVal, "#ffffff");
+
+    const fillOpacityVal = first.getAttribute("fill-opacity");
+    const fillOpacityPercent = Math.round(Number.parseFloat(fillOpacityVal || "1") * 100);
+
+    const strokeOpacityVal = first.getAttribute("stroke-opacity");
+    const strokeOpacityPercent = Math.round(Number.parseFloat(strokeOpacityVal || "1") * 100);
+
+    const strokeWidth = first.getAttribute("stroke-width") || "1";
+    const linecap = first.getAttribute("stroke-linecap") || "butt";
+    const linejoin = first.getAttribute("stroke-linejoin") || "miter";
+    const dasharray = first.getAttribute("stroke-dasharray") || "";
+
     inspector.innerHTML = `
       <div class="svg-editor-selected">
         <span class="element-tag-badge">${selectedElements.length} shapes selected</span>
       </div>
+
       <div class="field-label" style="margin-top: 0.6rem;">Selection Actions</div>
       <div class="chip-row">
         <button class="chip-btn chip-btn-icon" type="button" data-action="cut" title="Cut selection" aria-label="Cut selection">
@@ -1879,6 +2166,9 @@ function fern_renderInspector() {
         </button>
         <button class="chip-btn chip-btn-icon" type="button" data-action="copy" title="Copy selection" aria-label="Copy selection">
           <span class="material-icons" aria-hidden="true">content_copy</span>
+        </button>
+        <button class="chip-btn chip-btn-icon" type="button" data-action="paste" title="Paste clipboard" aria-label="Paste clipboard">
+          <span class="material-icons" aria-hidden="true">content_paste</span>
         </button>
         <button class="chip-btn chip-btn-icon" type="button" data-action="duplicate" title="Duplicate selection" aria-label="Duplicate selection">
           <span class="material-icons" aria-hidden="true">control_point_duplicate</span>
@@ -1888,8 +2178,20 @@ function fern_renderInspector() {
         </button>
       </div>
 
-      <div class="field-label" style="margin-top: 0.6rem;">Grouping</div>
+      <div class="field-label" style="margin-top: 0.6rem;">Layer &amp; Grouping</div>
       <div class="chip-row">
+        <button class="chip-btn chip-btn-icon" type="button" data-layer="top" title="Bring to Front" aria-label="Bring to Front">
+          <span class="material-icons" aria-hidden="true">flip_to_front</span>
+        </button>
+        <button class="chip-btn chip-btn-icon" type="button" data-layer="up" title="Bring Forward" aria-label="Bring Forward">
+          <span class="material-icons" aria-hidden="true">arrow_upward</span>
+        </button>
+        <button class="chip-btn chip-btn-icon" type="button" data-layer="down" title="Send Backward" aria-label="Send Backward">
+          <span class="material-icons" aria-hidden="true">arrow_downward</span>
+        </button>
+        <button class="chip-btn chip-btn-icon" type="button" data-layer="bottom" title="Send to Back" aria-label="Send to Back">
+          <span class="material-icons" aria-hidden="true">flip_to_back</span>
+        </button>
         <button class="chip-btn chip-btn-icon" type="button" data-group-action="group" title="Group into &lt;g&gt;" aria-label="Group into &lt;g&gt;">
           <span class="material-icons" aria-hidden="true">layers</span>
         </button>
@@ -1908,10 +2210,98 @@ function fern_renderInspector() {
         <button class="chip-btn chip-btn-icon" type="button" data-align="bottom" title="Align bottom" aria-label="Align bottom"><span class="material-icons">align_vertical_bottom</span></button>
       </div>
 
-      <div class="field-label" style="margin-top: 0.8rem;">Batch Color</div>
+      <div class="field-label" style="margin-top: 0.6rem;">Transform</div>
       <div class="chip-row">
-        <button class="chip-btn" type="button" data-action="edit-toolbar-color" data-color-role="fill" data-color-source="selection">Set Fill</button>
-        <button class="chip-btn" type="button" data-action="edit-toolbar-color" data-color-role="stroke" data-color-source="selection">Set Stroke</button>
+        <button class="chip-btn chip-btn-icon" type="button" data-transform-action="flip-h" title="Flip horizontally" aria-label="Flip horizontally">
+          <span class="material-icons" aria-hidden="true">flip</span>
+        </button>
+        <button class="chip-btn chip-btn-icon" type="button" data-transform-action="flip-v" title="Flip vertically" aria-label="Flip vertically">
+          <span class="material-icons" aria-hidden="true" style="transform: rotate(90deg); display: inline-block;">flip</span>
+        </button>
+        <button class="chip-btn chip-btn-icon" type="button" data-transform-action="rotate-cw" title="Rotate 90° clockwise" aria-label="Rotate 90° clockwise">
+          <span class="material-icons" aria-hidden="true">rotate_right</span>
+        </button>
+        <button class="chip-btn chip-btn-icon" type="button" data-transform-action="rotate-ccw" title="Rotate 90° counter-clockwise" aria-label="Rotate 90° counter-clockwise">
+          <span class="material-icons" aria-hidden="true">rotate_left</span>
+        </button>
+      </div>
+
+      <div class="field-label" style="margin-top: 0.8rem;">Fill &amp; Stroke</div>
+      <div class="inspector-color-row">
+        <div class="color-picker-group">
+          <span class="subgroup-title">Fill</span>
+          <div class="color-input-wrapper">
+            ${isGradient ? `
+              <div class="color-swatches-paired">
+                <button class="color-input-swatch" type="button" data-action="edit-toolbar-color" data-color-role="fill" data-color-source="selection-gradient-stop1" style="background: ${fillHex}" aria-label="Edit Gradient Start Color" title="Start Color" ${fillIsNone ? 'disabled' : ''}></button>
+                <button class="color-input-swatch" type="button" data-action="edit-toolbar-color" data-color-role="fill" data-color-source="selection-gradient-stop2" style="background: ${gradStop2}" aria-label="Edit Gradient End Color" title="End Color" ${fillIsNone ? 'disabled' : ''}></button>
+              </div>
+            ` : `
+              <button class="color-input-swatch" type="button" data-action="edit-toolbar-color" data-color-role="fill" data-color-source="selection" style="background: ${fillHex}" aria-label="Edit Fill color" title="Fill Color" ${fillIsNone ? 'disabled' : ''}></button>
+            `}
+            <div class="color-checkboxes-stack">
+              <label class="none-check-label">
+                <input type="checkbox" data-attr-none="fill" ${fillIsNone ? 'checked' : ''}>
+                <span>None</span>
+              </label>
+              <label class="none-check-label">
+                <input type="checkbox" data-attr-gradient="fill" ${isGradient ? 'checked' : ''} ${fillIsNone ? 'disabled' : ''}>
+                <span>Gradient</span>
+              </label>
+            </div>
+          </div>
+          <div class="opacity-slider-row" style="margin-top: 0.5rem;">
+            <label>
+              <span>Opacity</span>
+              <input type="range" min="0" max="100" step="1" data-attr-opacity="fill" value="${fillOpacityPercent}" ${fillIsNone ? 'disabled' : ''}>
+              <span class="opacity-value-readout" data-opacity-readout="fill">${fillOpacityPercent}%</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="color-picker-group">
+          <span class="subgroup-title">Stroke</span>
+          <div class="color-input-wrapper">
+            <button class="color-input-swatch" type="button" data-action="edit-toolbar-color" data-color-role="stroke" data-color-source="selection" style="background: ${strokeHex}" aria-label="Edit Stroke color" title="Stroke Color" ${strokeIsNone ? 'disabled' : ''}></button>
+            <div class="color-checkboxes-stack">
+              <label class="none-check-label">
+                <input type="checkbox" data-attr-none="stroke" ${strokeIsNone ? 'checked' : ''}>
+                <span>None</span>
+              </label>
+            </div>
+          </div>
+          <div class="opacity-slider-row" style="margin-top: 0.5rem;">
+            <label>
+              <span>Opacity</span>
+              <input type="range" min="0" max="100" step="1" data-attr-opacity="stroke" value="${strokeOpacityPercent}" ${strokeIsNone ? 'disabled' : ''}>
+              <span class="opacity-value-readout" data-opacity-readout="stroke">${strokeOpacityPercent}%</span>
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <div class="field-label" style="margin-top: 0.8rem;">Stroke Style</div>
+      <div class="inspector-grid">
+        <label><span>Width</span>
+          <input class="select-pill" type="number" step="0.5" min="0" data-attr="stroke-width" value="${strokeWidth}" ${strokeIsNone ? 'disabled' : ''}>
+        </label>
+        <label><span>Line Cap</span>
+          <select class="select-pill" data-attr="stroke-linecap">
+            <option value="butt" ${linecap === "butt" ? "selected" : ""}>Butt</option>
+            <option value="round" ${linecap === "round" ? "selected" : ""}>Round</option>
+            <option value="square" ${linecap === "square" ? "selected" : ""}>Square</option>
+          </select>
+        </label>
+        <label><span>Line Join</span>
+          <select class="select-pill" data-attr="stroke-linejoin">
+            <option value="miter" ${linejoin === "miter" ? "selected" : ""}>Miter</option>
+            <option value="round" ${linejoin === "round" ? "selected" : ""}>Round</option>
+            <option value="bevel" ${linejoin === "bevel" ? "selected" : ""}>Bevel</option>
+          </select>
+        </label>
+        <label><span>Dash Array</span>
+          <input class="select-pill" type="text" data-attr="stroke-dasharray" value="${dasharray}" placeholder="e.g. 4 4">
+        </label>
       </div>
     `;
     return;
@@ -2190,11 +2580,20 @@ function fern_getPolygonCenterRadius(element) {
 
 function fern_updateSelectedAttr(event) {
   const sidesInput = event.target.closest("[data-polygon-sides]");
-  if (sidesInput && fernSelectedElement) {
+  const targets = fern_getSelectedElements();
+  if (targets.length === 0) {
+    return;
+  }
+
+  if (sidesInput) {
     const sides = Math.max(3, Math.min(32, Number.parseInt(sidesInput.value, 10) || 3));
-    const { cx, cy, r } = fern_getPolygonCenterRadius(fernSelectedElement);
     fern_beginHistory();
-    fernSelectedElement.setAttribute("points", fern_generatePolygonPoints(sides, cx, cy, r));
+    for (const el of targets) {
+      if (fern_getTagName(el) === "polygon" || fern_getTagName(el) === "polyline") {
+        const { cx, cy, r } = fern_getPolygonCenterRadius(el);
+        el.setAttribute("points", fern_generatePolygonPoints(sides, cx, cy, r));
+      }
+    }
     fern_renderInspector();
     fern_renderPointHandles();
     fern_commitHistory();
@@ -2202,18 +2601,24 @@ function fern_updateSelectedAttr(event) {
   }
 
   const input = event.target.closest("[data-attr]");
-  if (!input || !fernSelectedElement) {
+  if (!input) {
     return;
   }
 
   fern_beginHistory();
   const value = input.value.trim();
-  if (value) {
-    fernSelectedElement.setAttribute(input.dataset.attr, value);
-  } else {
-    fernSelectedElement.removeAttribute(input.dataset.attr);
+  for (const el of targets) {
+    if (value) {
+      el.setAttribute(input.dataset.attr, value);
+    } else {
+      el.removeAttribute(input.dataset.attr);
+    }
   }
-  fern_renderPointHandles();
+  if (fernEditorMode === "select-node") {
+    fern_renderPointHandles();
+  } else {
+    fern_renderSelectionBox(targets);
+  }
   fern_commitHistory();
 }
 
@@ -2224,11 +2629,18 @@ function fern_updateColorAttr(event) {
   const gradientAngleInput = event.target.closest("[data-gradient-angle]");
   const opacityInput = event.target.closest("[data-attr-opacity]");
 
-  if (gradientAngleInput && fernSelectedElement) {
+  const targets = fern_getSelectedElements();
+  if (targets.length === 0) {
+    return;
+  }
+
+  if (gradientAngleInput) {
     const angle = Number.parseInt(gradientAngleInput.value, 10) || 0;
-    const info = fern_getGradientInfo(fernSelectedElement);
     fern_beginHistory();
-    fern_setLinearGradient(fernSelectedElement, info.stop1, info.stop2, angle);
+    for (const el of targets) {
+      const info = fern_getGradientInfo(el);
+      fern_setLinearGradient(el, info.stop1, info.stop2, angle);
+    }
     const readout = fernEditor.querySelector("[data-gradient-angle-readout]");
     if (readout) {
       readout.textContent = `${angle}°`;
@@ -2240,15 +2652,17 @@ function fern_updateColorAttr(event) {
     return;
   }
 
-  if (gradientInput && fernSelectedElement) {
-    const info = fern_getGradientInfo(fernSelectedElement);
+  if (gradientInput) {
     fern_beginHistory();
-    if (gradientInput.checked) {
-      fern_setLinearGradient(fernSelectedElement, info.stop1, info.stop2, info.angle);
-      const noneBox = fernEditor.querySelector('[data-attr-none="fill"]');
-      if (noneBox) noneBox.checked = false;
-    } else {
-      fernSelectedElement.setAttribute("fill", info.stop1);
+    for (const el of targets) {
+      const info = fern_getGradientInfo(el);
+      if (gradientInput.checked) {
+        fern_setLinearGradient(el, info.stop1, info.stop2, info.angle);
+        const noneBox = fernEditor.querySelector('[data-attr-none="fill"]');
+        if (noneBox) noneBox.checked = false;
+      } else {
+        el.setAttribute("fill", info.stop1);
+      }
     }
     fern_renderInspector();
     fern_commitHistory();
@@ -2256,17 +2670,19 @@ function fern_updateColorAttr(event) {
     return;
   }
 
-  if (opacityInput && fernSelectedElement) {
+  if (opacityInput) {
     const targetAttr = opacityInput.dataset.attrOpacity;
     const opacityAttr = `${targetAttr}-opacity`;
     const percent = Math.max(0, Math.min(100, Number.parseInt(opacityInput.value, 10) || 0));
     const floatVal = fern_formatNumber(percent / 100);
 
     fern_beginHistory();
-    if (percent === 100) {
-      fernSelectedElement.removeAttribute(opacityAttr);
-    } else {
-      fernSelectedElement.setAttribute(opacityAttr, floatVal);
+    for (const el of targets) {
+      if (percent === 100) {
+        el.removeAttribute(opacityAttr);
+      } else {
+        el.setAttribute(opacityAttr, floatVal);
+      }
     }
     const readout = fernEditor.querySelector(`[data-opacity-readout="${targetAttr}"]`);
     if (readout) {
@@ -2276,24 +2692,28 @@ function fern_updateColorAttr(event) {
     return;
   }
 
-  if (colorInput && fernSelectedElement) {
+  if (colorInput) {
     const attr = colorInput.dataset.attrColor;
     fern_beginHistory();
-    fernSelectedElement.setAttribute(attr, colorInput.value);
+    for (const el of targets) {
+      el.setAttribute(attr, colorInput.value);
+    }
     const checkbox = fernEditor.querySelector(`[data-attr-none="${attr}"]`);
     if (checkbox) {
       checkbox.checked = false;
     }
     colorInput.disabled = false;
     fern_commitHistory();
-  } else if (noneInput && fernSelectedElement) {
+  } else if (noneInput) {
     const attr = noneInput.dataset.attrNone;
     fern_beginHistory();
-    if (noneInput.checked) {
-      fernSelectedElement.setAttribute(attr, "none");
-    } else {
-      const picker = fernEditor.querySelector(`[data-attr-color="${attr}"]`);
-      fernSelectedElement.setAttribute(attr, picker ? picker.value : "#ffffff");
+    for (const el of targets) {
+      if (noneInput.checked) {
+        el.setAttribute(attr, "none");
+      } else {
+        const picker = fernEditor.querySelector(`[data-attr-color="${attr}"]`);
+        el.setAttribute(attr, picker ? picker.value : "#ffffff");
+      }
     }
     fern_renderInspector();
     fern_commitHistory();
@@ -2548,8 +2968,8 @@ function fern_getPathPointRefs(element) {
       currentY = end.y;
       currentAnchor = end;
     } else if (upper === "S" || upper === "Q") {
-      const control = addCurvePoint("control");
-      const end = addCurvePoint("end");
+      const control = fern_addCurvePoint("control");
+      const end = fern_addCurvePoint("end");
       if (!control || !end) {
         break;
       }
@@ -2564,8 +2984,43 @@ function fern_getPathPointRefs(element) {
       currentX = end.x;
       currentY = end.y;
       currentAnchor = end;
+    } else if (upper === "A") {
+      const rxRef = fern_readNumber();
+      const ryRef = fern_readNumber();
+      const rotRef = fern_readNumber();
+      const largeArcRef = fern_readNumber();
+      const sweepRef = fern_readNumber();
+      const xRef = fern_readNumber();
+      const yRef = fern_readNumber();
+      if (!rxRef || !ryRef || !rotRef || !largeArcRef || !sweepRef || !xRef || !yRef) {
+        break;
+      }
+      const relative = command === command.toLowerCase();
+      const x = relative ? currentX + xRef.value : xRef.value;
+      const y = relative ? currentY + yRef.value : yRef.value;
+      const previousAnchor = currentAnchor;
+      currentAnchor = {
+        type: "path-pair",
+        role: "A",
+        x,
+        y,
+        xRef,
+        yRef,
+        relative,
+        tokens,
+        controls: [],
+        segmentStart: Math.max(0, rxRef.tokenIndex - 1),
+        segmentEnd: yRef.tokenIndex + 1,
+        incomingSegment: "A",
+      };
+      if (previousAnchor) {
+        previousAnchor.outgoingSegment = "A";
+      }
+      refs.push(currentAnchor);
+      currentX = x;
+      currentY = y;
     } else if (upper === "H") {
-      const xRef = readNumber();
+      const xRef = fern_readNumber();
       if (!xRef) {
         break;
       }
@@ -2579,7 +3034,7 @@ function fern_getPathPointRefs(element) {
       refs.push(currentAnchor);
       currentX = x;
     } else if (upper === "V") {
-      const yRef = readNumber();
+      const yRef = fern_readNumber();
       if (!yRef) {
         break;
       }
@@ -2700,25 +3155,6 @@ function fern_getPointRefs(element) {
     }
     return refs;
   }
-  if (tag === "g") {
-    try {
-      const box = element.getBBox();
-      if (box && Number.isFinite(box.x) && Number.isFinite(box.y)) {
-        const x = fern_snap(box.x);
-        const y = fern_snap(box.y);
-        const width = fern_snap(box.width);
-        const height = fern_snap(box.height);
-        return [
-          { type: "group-bounds", corner: "tl", x, y },
-          { type: "group-bounds", corner: "tr", x: x + width, y },
-          { type: "group-bounds", corner: "br", x: x + width, y: y + height },
-          { type: "group-bounds", corner: "bl", x, y: y + height },
-        ];
-      }
-    } catch (_e) {
-      return [];
-    }
-  }
   if (tag === "path") {
     return fern_getPathPointRefs(element);
   }
@@ -2761,73 +3197,91 @@ function fern_selectedSegment(refs = fern_getPointRefs(fernSelectedElement)) {
 
 function fern_renderPointHandles() {
   fern_clearHandles();
-  if (!fernSelectedElement || !fernActiveSvg) {
+  if (!fernActiveSvg) {
     return;
   }
 
-  const refs = fern_getPointRefs(fernSelectedElement);
-  if (refs.length === 0) {
+  const selectedElements = fern_getSelectedElements().filter((el) => fern_getTagName(el) !== "g");
+  const elements = selectedElements.length > 0 ? selectedElements : (fernSelectedElement && fern_getTagName(fernSelectedElement) !== "g" ? [fernSelectedElement] : []);
+  if (elements.length === 0) {
     return;
   }
 
   const group = document.createElementNS(FERN_SVG_NS, "g");
   group.setAttribute("data-editor-handles", "");
-  const transform = fernSelectedElement.getAttribute("transform");
-  if (transform) {
-    group.setAttribute("transform", transform);
-  }
-  const handleSize = 6 / fernZoomLevel;
-  const segmentPath = fern_selectedSegmentPath(refs);
-  if (segmentPath) {
-    const segment = document.createElementNS(FERN_SVG_NS, "path");
-    segment.setAttribute("d", segmentPath);
-    segment.setAttribute("class", "svg-selected-segment");
-    group.append(segment);
-  }
-  for (const ref of refs) {
-    if (!ref.connectTo || ref.hiddenControl) {
-      continue;
+
+  const handleSize = 8 / Math.max(0.25, fernZoomLevel || 1);
+  const radius = handleSize / 2;
+
+  elements.forEach((element, elemIdx) => {
+    const refs = fern_getPointRefs(element);
+    if (refs.length === 0) {
+      return;
     }
 
-    const guide = document.createElementNS(FERN_SVG_NS, "line");
-    guide.setAttribute("x1", fern_formatNumber(ref.x));
-    guide.setAttribute("y1", fern_formatNumber(ref.y));
-    guide.setAttribute("x2", fern_formatNumber(ref.connectTo.x));
-    guide.setAttribute("y2", fern_formatNumber(ref.connectTo.y));
-    guide.setAttribute("class", "svg-control-line");
-    group.append(guide);
-  }
-  for (const [index, ref] of refs.entries()) {
-    if (ref.hiddenControl || ref.hiddenAnchor) {
-      continue;
+    const isPrimary = element === fernSelectedElement || (elements.length === 1);
+    const segmentPath = isPrimary ? fern_selectedSegmentPath(refs) : null;
+    if (segmentPath) {
+      const segment = document.createElementNS(FERN_SVG_NS, "path");
+      segment.setAttribute("d", segmentPath);
+      segment.setAttribute("class", "svg-selected-segment");
+      const matrix = fern_elementToCanvasMatrix(element);
+      if (matrix) {
+        segment.setAttribute("transform", `matrix(${[
+          matrix.a, matrix.b, matrix.c, matrix.d, matrix.e, matrix.f,
+        ].map(fern_formatTransformNumber).join(" ")})`);
+      }
+      group.append(segment);
     }
 
-    const isControl = ref.role === "control";
-    const handle = document.createElementNS(FERN_SVG_NS, isControl ? "circle" : ref.pointMode === "corner" ? "polygon" : "rect");
-    if (isControl) {
-      handle.setAttribute("cx", fern_formatNumber(ref.x));
-      handle.setAttribute("cy", fern_formatNumber(ref.y));
-      handle.setAttribute("r", fern_formatNumber(handleSize * 0.4));
-    } else if (ref.pointMode === "corner") {
-      const radius = handleSize / 2;
-      handle.setAttribute("points", `${fern_formatNumber(ref.x)},${fern_formatNumber(ref.y - radius)} ${fern_formatNumber(ref.x + radius)},${fern_formatNumber(ref.y)} ${fern_formatNumber(ref.x)},${fern_formatNumber(ref.y + radius)} ${fern_formatNumber(ref.x - radius)},${fern_formatNumber(ref.y)}`);
-    } else {
-      const size = handleSize;
-      handle.setAttribute("x", fern_formatNumber(ref.x - size / 2));
-      handle.setAttribute("y", fern_formatNumber(ref.y - size / 2));
-      handle.setAttribute("width", fern_formatNumber(size));
-      handle.setAttribute("height", fern_formatNumber(size));
+    for (const ref of refs) {
+      if (!ref.connectTo || ref.hiddenControl) {
+        continue;
+      }
+
+      const p1 = fern_elementPointToCanvas(element, ref.x, ref.y);
+      const p2 = fern_elementPointToCanvas(element, ref.connectTo.x, ref.connectTo.y);
+
+      const guide = document.createElementNS(FERN_SVG_NS, "line");
+      guide.setAttribute("x1", fern_formatNumber(p1.x));
+      guide.setAttribute("y1", fern_formatNumber(p1.y));
+      guide.setAttribute("x2", fern_formatNumber(p2.x));
+      guide.setAttribute("y2", fern_formatNumber(p2.y));
+      guide.setAttribute("class", "svg-control-line");
+      group.append(guide);
     }
-    const selectedClass = index === fernSelectedPointIndex || fernSelectedNodeIndices.has(index) ? " is-active-point" : "";
-    handle.setAttribute("class", `${isControl ? "svg-point-handle svg-point-control" : "svg-point-handle svg-point-anchor"}${selectedClass}`);
-    handle.setAttribute("data-point-index", String(index));
-    group.append(handle);
-  }
-  if (fernSelectedElement.parentElement) {
-    fernSelectedElement.parentElement.appendChild(group);
-  } else {
-    fernActiveSvg.append(group);
-  }
+
+    for (const [index, ref] of refs.entries()) {
+      if (ref.hiddenControl || ref.hiddenAnchor) {
+        continue;
+      }
+
+      const cp = fern_elementPointToCanvas(element, ref.x, ref.y);
+      const isControl = ref.role === "control";
+      const handle = document.createElementNS(FERN_SVG_NS, isControl ? "circle" : ref.pointMode === "corner" ? "polygon" : "rect");
+
+      if (isControl) {
+        handle.setAttribute("cx", fern_formatNumber(cp.x));
+        handle.setAttribute("cy", fern_formatNumber(cp.y));
+        handle.setAttribute("r", fern_formatNumber(handleSize * 0.45));
+      } else if (ref.pointMode === "corner") {
+        handle.setAttribute("points", `${fern_formatNumber(cp.x)},${fern_formatNumber(cp.y - radius)} ${fern_formatNumber(cp.x + radius)},${fern_formatNumber(cp.y)} ${fern_formatNumber(cp.x)},${fern_formatNumber(cp.y + radius)} ${fern_formatNumber(cp.x - radius)},${fern_formatNumber(cp.y)}`);
+      } else {
+        handle.setAttribute("x", fern_formatNumber(cp.x - radius));
+        handle.setAttribute("y", fern_formatNumber(cp.y - radius));
+        handle.setAttribute("width", fern_formatNumber(handleSize));
+        handle.setAttribute("height", fern_formatNumber(handleSize));
+      }
+
+      const selectedClass = isPrimary && (index === fernSelectedPointIndex || fernSelectedNodeIndices.has(index)) ? " is-active-point" : "";
+      handle.setAttribute("class", `${isControl ? "svg-point-handle svg-point-control" : "svg-point-handle svg-point-anchor"}${selectedClass}`);
+      handle.setAttribute("data-point-index", String(index));
+      handle.setAttribute("data-element-index", String(elemIdx));
+      group.append(handle);
+    }
+  });
+
+  fernActiveSvg.append(group);
 }
 
 function fern_setPathPair(ref, x, y) {
@@ -3491,6 +3945,19 @@ function fern_moveElement(element, dx, dy, original) {
   dx = fern_snap(dx);
   dy = fern_snap(dy);
   if (original.transform) {
+    const match = original.transform.trim().match(/^translate\(\s*(-?\d*\.?\d+)(?:[\s,]+(-?\d*\.?\d+))?\s*\)$/i);
+    if (match) {
+      const curX = Number.parseFloat(match[1]) || 0;
+      const curY = Number.parseFloat(match[2] || "0") || 0;
+      const newX = curX + dx;
+      const newY = curY + dy;
+      if (Math.abs(newX) < 1e-6 && Math.abs(newY) < 1e-6) {
+        element.removeAttribute("transform");
+      } else {
+        element.setAttribute("transform", `translate(${fern_formatNumber(newX)} ${fern_formatNumber(newY)})`);
+      }
+      return;
+    }
     const prefix = `translate(${fern_formatNumber(dx)} ${fern_formatNumber(dy)})`;
     element.setAttribute("transform", `${prefix} ${original.transform}`);
     return;
@@ -3533,7 +4000,69 @@ function fern_moveElement(element, dx, dy, original) {
 }
 
 function fern_translateElementBy(element, dx, dy) {
-  fern_moveElement(element, dx, dy, fern_getOriginalAttrs(element));
+  const local = fern_canvasDeltaToElement(element, dx, dy);
+  fern_moveElement(element, local.dx, local.dy, fern_getOriginalAttrs(element));
+}
+
+function fern_nudgeSelection(dx, dy) {
+  if (!fernActiveSvg) {
+    return false;
+  }
+
+  if (fernEditorMode === "select-node" && fernSelectedElement) {
+    const refs = fern_getPointRefs(fernSelectedElement);
+    const selectedIndices = fernSelectedNodeIndices.size > 0
+      ? Array.from(fernSelectedNodeIndices)
+      : (fernSelectedPointIndex !== null && fernSelectedPointIndex !== undefined ? [fernSelectedPointIndex] : []);
+
+    if (selectedIndices.length > 0 && refs.length > 0) {
+      fern_beginHistory();
+      const local = fern_canvasDeltaToElement(fernSelectedElement, dx, dy);
+      const movedRefs = new Set();
+      for (const index of selectedIndices) {
+        const ref = refs[index];
+        if (!ref || movedRefs.has(ref)) {
+          continue;
+        }
+        movedRefs.add(ref);
+        const newX = (ref.x || 0) + local.dx;
+        const newY = (ref.y || 0) + local.dy;
+        fern_applyPointRef(fernSelectedElement, ref, newX, newY);
+        if (ref.role === "anchor" && Array.isArray(ref.controls)) {
+          for (const control of ref.controls) {
+            if (!movedRefs.has(control)) {
+              movedRefs.add(control);
+              fern_applyPointRef(fernSelectedElement, control, (control.x || 0) + local.dx, (control.y || 0) + local.dy);
+            }
+          }
+        }
+      }
+      fern_commitHistory();
+      fern_autoSaveLocal();
+      fern_renderInspector();
+      fern_renderPointHandles();
+      return true;
+    }
+  }
+
+  const elements = fern_getSelectedElements();
+  if (elements.length > 0) {
+    fern_beginHistory();
+    for (const el of elements) {
+      fern_translateElementBy(el, dx, dy);
+    }
+    fern_commitHistory();
+    fern_autoSaveLocal();
+    fern_renderInspector();
+    if (fernEditorMode === "select-node") {
+      fern_renderPointHandles();
+    } else {
+      fern_renderSelectionBox(fernSelectedElements);
+    }
+    return true;
+  }
+
+  return false;
 }
 
 function fern_getOriginalAttrs(element) {
@@ -3631,6 +4160,10 @@ function fern_updateCanvasStageSize() {
 
   canvas.style.width = `${finalW}px`;
   canvas.style.height = `${finalH}px`;
+
+  if (fernEditorMode === "select-node" && fernSelectedElement) {
+    requestAnimationFrame(fern_renderPointHandles);
+  }
 }
 
 function fern_applyZoom() {
@@ -3880,9 +4413,7 @@ function fern_handlePointerDown(event) {
   const point = fern_getCanvasPoint(event);
   const handle = event.target.closest("[data-point-index]");
   const resizeHandle = event.target.closest("[data-resize-handle]");
-  const target = fern_selectableTarget(event.target, event);
   const stage = fernEditor.querySelector("[data-svg-canvas]")?.parentElement;
-  const viewBox = fern_getViewBox();
 
   if (fernDrawPathMode) {
     event.preventDefault();
@@ -3897,6 +4428,22 @@ function fern_handlePointerDown(event) {
     fernPathBuildingPoints.push({ x: fern_snap(point.x), y: fern_snap(point.y) });
     fern_updateDrawingPath();
     fern_setEditorStatus(`Path points: ${fernPathBuildingPoints.length}. Double-click or Enter to finish.`);
+    return;
+  }
+
+  // Navigation never changes selection, even when a pan starts on artwork or
+  // an editor handle. Space and the middle mouse button temporarily pan too.
+  const shouldPan = fernEditorMode === "pan" || (fernEditorMode === "draw" && !fernDrawPathMode) || fernSpacePressed || event.button === 1;
+  if (shouldPan) {
+    event.preventDefault();
+    fernPanState = {
+      startClientX: event.clientX,
+      startClientY: event.clientY,
+      startScrollLeft: stage ? stage.scrollLeft : 0,
+      startScrollTop: stage ? stage.scrollTop : 0,
+    };
+    fernActiveSvg.classList.add("is-panning");
+    fernActiveSvg.setPointerCapture(event.pointerId);
     return;
   }
 
@@ -3924,16 +4471,30 @@ function fern_handlePointerDown(event) {
     return;
   }
 
-  if (handle && fernSelectedElement) {
+  if (handle) {
     event.stopPropagation();
-    const refs = fern_getPointRefs(fernSelectedElement);
-    const ref = refs[Number.parseInt(handle.dataset.pointIndex, 10)];
+    const elemIdx = Number.parseInt(handle.dataset.elementIndex || "0", 10);
+    const leafElements = fern_getSelectedElements().filter((el) => fern_getTagName(el) !== "g");
+    const targetElem = leafElements[elemIdx] || fernSelectedElement;
+    if (!targetElem) {
+      return;
+    }
+
+    if (fernSelectedElement !== targetElem) {
+      fernSelectedElement = targetElem;
+      fernSelectedPointIndex = null;
+      fernSelectedNodeIndices = new Set();
+    }
+
+    const refs = fern_getPointRefs(targetElem);
+    const pointIdx = Number.parseInt(handle.dataset.pointIndex, 10);
+    const ref = refs[pointIdx];
     if (!ref) {
       return;
     }
 
-    const pointInElem = fern_getElementPoint(event, fernSelectedElement);
-    fernSelectedPointIndex = Number.parseInt(handle.dataset.pointIndex, 10);
+    const pointInElem = fern_getElementPoint(event, targetElem);
+    fernSelectedPointIndex = pointIdx;
     if (event.shiftKey && fern_refHasPosition(ref)) {
       if (fernSelectedNodeIndices.has(fernSelectedPointIndex)) {
         fernSelectedNodeIndices.delete(fernSelectedPointIndex);
@@ -3946,6 +4507,7 @@ function fern_handlePointerDown(event) {
     fernSelectedNodeIndices = fern_refHasPosition(ref) ? new Set([fernSelectedPointIndex]) : new Set();
     fern_beginHistory();
     fernPointDragState = {
+      element: targetElem,
       ref,
       refs,
       mirrorControls: (event.shiftKey || Boolean(ref.mirrorControl)) && ref.role === "control",
@@ -3961,52 +4523,36 @@ function fern_handlePointerDown(event) {
         : [],
     };
     fernActiveSvg.setPointerCapture(event.pointerId);
+    fern_renderPointHandles();
     return;
   }
 
-  // Hand / Pan mode is the primary navigation tool
-  const isPanMode = fernEditorMode === "pan" || fernEditorMode === "draw";
-  if (isPanMode) {
-    if (target) {
-      fern_selectElements([target], event.shiftKey);
+  const currentSelected = fern_getSelectedElements();
+  const clickedOnSelected = currentSelected.some((el) => {
+    if (!el || !event.target) return false;
+    if (el === event.target) return true;
+    if (fernEditorMode === "select-node") {
+      return el.tagName !== "g" && el.contains(event.target);
     }
-    event.preventDefault();
-    fernPanState = {
-      startClientX: event.clientX,
-      startClientY: event.clientY,
-      startScrollLeft: stage ? stage.scrollLeft : 0,
-      startScrollTop: stage ? stage.scrollTop : 0,
-    };
-    fernActiveSvg.classList.add("is-panning");
-    fernActiveSvg.setPointerCapture(event.pointerId);
-    return;
-  }
+    return el.contains(event.target);
+  });
 
-  const shouldPan = fernSpacePressed || event.button === 1;
-  if (shouldPan) {
-    event.preventDefault();
-    fernPanState = {
-      startClientX: event.clientX,
-      startClientY: event.clientY,
-      startScrollLeft: stage ? stage.scrollLeft : 0,
-      startScrollTop: stage ? stage.scrollTop : 0,
-    };
-    fernActiveSvg.classList.add("is-panning");
-    fernActiveSvg.setPointerCapture(event.pointerId);
-    return;
-  }
-
-  if (target) {
-    if (event.shiftKey) {
-      fern_selectElements([target], true);
-    } else {
-      const selected = fern_getSelectedElements();
-      if (!selected.includes(target)) {
-        fern_selectElements([target], false);
+  let target = null;
+  if (!clickedOnSelected || event.shiftKey) {
+    target = fern_selectableTarget(event.target, event);
+    if (target) {
+      if (event.shiftKey) {
+        fern_selectElements([target], true);
+      } else {
+        if (!currentSelected.includes(target)) {
+          fern_selectElements([target], false);
+        }
       }
     }
+  }
 
-    let elementsToDrag = fern_getSelectedElements();
+  let elementsToDrag = fern_getSelectedElements();
+  if (elementsToDrag.length > 0 && (clickedOnSelected || target)) {
     if (event.altKey) {
       const clones = [];
       for (const el of elementsToDrag) {
@@ -4030,7 +4576,7 @@ function fern_handlePointerDown(event) {
     return;
   }
 
-  // Clicked on empty canvas space in Select / Node mode:
+  // Clicked on empty canvas space:
   if (fernEditorMode === "select-node" && fernSelectedElement && fern_getTagName(fernSelectedElement) === "path") {
     fernMarqueeState = {
       startX: point.x,
@@ -4042,7 +4588,10 @@ function fern_handlePointerDown(event) {
       shift: event.shiftKey,
     };
     fernActiveSvg.setPointerCapture(event.pointerId);
-  } else if (!isPanMode) {
+    return;
+  }
+
+  if (fernEditorMode === "select" || fernEditorMode === "select-group") {
     fernMarqueeState = {
       startX: point.x,
       startY: point.y,
@@ -4051,10 +4600,9 @@ function fern_handlePointerDown(event) {
       isNodeMarquee: false,
       shift: event.shiftKey,
     };
-    if (!event.shiftKey) {
-      fern_selectElements([]);
-    }
+    if (!event.shiftKey) fern_selectElements([]);
     fernActiveSvg.setPointerCapture(event.pointerId);
+    return;
   }
 }
 
@@ -4085,31 +4633,13 @@ function fern_handlePointerMove(event) {
     const w = Math.max(0.1, Math.abs(pointerPoint.x - fernMarqueeState.startX));
     const h = Math.max(0.1, Math.abs(pointerPoint.y - fernMarqueeState.startY));
 
-    let handlesGroup = fernActiveSvg.querySelector("[data-editor-handles]");
-    if (!handlesGroup) {
-      handlesGroup = document.createElementNS(FERN_SVG_NS, "g");
-      handlesGroup.setAttribute("data-editor-handles", "");
-      fernActiveSvg.append(handlesGroup);
-    }
-
-    let marqueeRect = handlesGroup.querySelector(".svg-marquee-box");
-    if (!marqueeRect) {
-      marqueeRect = document.createElementNS(FERN_SVG_NS, "rect");
-      marqueeRect.setAttribute("class", "svg-marquee-box");
-      handlesGroup.append(marqueeRect);
-    }
-
-    marqueeRect.setAttribute("x", fern_formatNumber(minX));
-    marqueeRect.setAttribute("y", fern_formatNumber(minY));
-    marqueeRect.setAttribute("width", fern_formatNumber(w));
-    marqueeRect.setAttribute("height", fern_formatNumber(h));
-
     if (fernMarqueeState.isNodeMarquee && fernSelectedElement) {
       const refs = fern_getPointRefs(fernSelectedElement);
       const matchedNodeIndices = new Set();
       for (const [idx, ref] of refs.entries()) {
         if (fern_refHasPosition(ref)) {
-          if (ref.x >= minX && ref.x <= minX + w && ref.y >= minY && ref.y <= minY + h) {
+          const canvasPoint = fern_elementPointToCanvas(fernSelectedElement, ref.x, ref.y);
+          if (canvasPoint.x >= minX && canvasPoint.x <= minX + w && canvasPoint.y >= minY && canvasPoint.y <= minY + h) {
             matchedNodeIndices.add(idx);
           }
         }
@@ -4117,6 +4647,7 @@ function fern_handlePointerMove(event) {
       fernSelectedNodeIndices = matchedNodeIndices;
       fern_renderPointHandles();
     }
+    fern_renderMarqueeBox(minX, minY, w, h);
     return;
   }
 
@@ -4166,12 +4697,14 @@ function fern_handlePointerMove(event) {
     return;
   }
 
-  if (fernPointDragState && fernSelectedElement) {
-    const point = fern_getElementPoint(event, fernSelectedElement);
+  if (fernPointDragState) {
+    const dragElem = fernPointDragState.element || fernSelectedElement;
+    if (!dragElem) return;
+    const point = fern_getElementPoint(event, dragElem);
     const x = fern_snap(fernPointDragState.startX + point.x - fernPointDragState.startPointerX);
     const y = fern_snap(fernPointDragState.startY + point.y - fernPointDragState.startPointerY);
     fernPointDragState.moved = fernPointDragState.moved || x !== fernPointDragState.startX || y !== fernPointDragState.startY;
-    fern_applyPointRef(fernSelectedElement, fernPointDragState.ref, x, y);
+    fern_applyPointRef(dragElem, fernPointDragState.ref, x, y);
     if (fernPointDragState.mirrorControls && fernPointDragState.ref.connectTo) {
       const anchor = fernPointDragState.ref.connectTo;
       const paired = fernPointDragState.ref.mirrorControl || fernPointDragState.refs.find((candidate) => (
@@ -4181,7 +4714,7 @@ function fern_handlePointerMove(event) {
       ));
       if (paired) {
         fern_setAbsolutePathPair(paired, fern_snap(anchor.x * 2 - x), fern_snap(anchor.y * 2 - y));
-        fernSelectedElement.setAttribute("d", fern_serializePathTokens(paired.tokens));
+        dragElem.setAttribute("d", fern_serializePathTokens(paired.tokens));
       }
     }
     fern_setCoordinateReadout(x, y);
@@ -4205,7 +4738,8 @@ function fern_handlePointerMove(event) {
   }
 
   for (const { el, original } of fernDragState.initialAttrs) {
-    fern_moveElement(el, dx, dy, original);
+    const local = fern_canvasDeltaToElement(el, dx, dy);
+    fern_moveElement(el, local.dx, local.dy, original);
   }
 
   fern_setCoordinateReadout(fernDragState.startX + dx, fernDragState.startY + dy);
@@ -4216,7 +4750,7 @@ function fern_handlePointerMove(event) {
   }
 }
 
-function fern_handlePointerUp() {
+function fern_handlePointerUp(event) {
   if (fernPanState) {
     fernPanState = null;
     fernActiveSvg.classList.remove("is-panning");
@@ -4233,34 +4767,37 @@ function fern_handlePointerUp() {
       const editable = fern_editableElements();
       const matched = [];
       for (const element of editable) {
+        if (fern_isDocumentBackground(element) && editable.length > 1) continue;
         const box = fern_getElementBoundingBox(element);
-        // Check box overlap
+        // Fully contained inside marquee bounding box
         if (
-          box.x + box.width >= minX &&
-          box.x <= minX + w &&
-          box.y + box.height >= minY &&
-          box.y <= minY + h
+          box.x >= minX - 0.5 &&
+          box.x + box.width <= minX + w + 0.5 &&
+          box.y >= minY - 0.5 &&
+          box.y + box.height <= minY + h + 0.5
         ) {
           if (fernEditorMode === "select-group") {
-            let topmost = element;
-            let current = element;
-            while (current && current !== fernActiveSvg) {
-              if (current.tagName === "g" && !current.hasAttribute("data-editor-handles") && !current.hasAttribute("data-editor-grid") && !current.hasAttribute("data-editor-backdrop")) {
-                topmost = current;
-              }
-              current = current.parentElement;
-            }
-            if (!matched.includes(topmost)) {
-              matched.push(topmost);
+            const group = fern_nearestSelectableGroup(element) || element;
+            if (!matched.includes(group)) {
+              matched.push(group);
             }
           } else {
-            matched.push(element);
+            // Select all shapes - not groups
+            if (element.tagName !== "g" && !matched.includes(element)) {
+              matched.push(element);
+            }
           }
         }
       }
       fern_selectElements(matched, shift);
+    } else if (!isNodeMarquee && w <= 2 && h <= 2) {
+      const target = fern_selectableTarget(event.target, event);
+      if (target && target.tagName !== "g") {
+        fern_selectElements([target], shift);
+      }
     }
     fernMarqueeState = null;
+    fern_clearMarquee();
     fern_clearHandles();
     if (fernEditorMode === "select-node") {
       fern_renderPointHandles();
@@ -4400,7 +4937,12 @@ function fern_importSvg(content) {
   }
 
   const nextSvg = fern_sanitizeSvg(document.importNode(rootSvg, true));
+  nextSvg.classList.remove(
+    "is-mode-select", "is-mode-select-group", "is-mode-select-node",
+    "is-mode-draw", "is-mode-pan", "is-panning", "is-drawing-path", "is-zoomed",
+  );
   nextSvg.classList.add("icon-editor-svg");
+  nextSvg.classList.add(`is-mode-${fernEditorMode}`);
   nextSvg.setAttribute("tabindex", "0");
   if (!nextSvg.getAttribute("viewBox")) {
     const width = fern_numericAttr(nextSvg, "width", 100);
@@ -4584,7 +5126,13 @@ async function fern_writeLocalFile(fernHandle, fernContent) {
 
 function fern_cleanForSave() {
   const clone = fernActiveSvg.cloneNode(true);
-  clone.classList.remove("icon-editor-svg");
+  clone.classList.remove(
+    "icon-editor-svg", "is-mode-select", "is-mode-select-group", "is-mode-select-node",
+    "is-mode-draw", "is-mode-pan", "is-panning", "is-drawing-path", "is-zoomed",
+  );
+  if (!clone.getAttribute("class")) {
+    clone.removeAttribute("class");
+  }
   clone.removeAttribute("tabindex");
   const viewBox = fern_getViewBox();
   clone.setAttribute("viewBox", `${fern_formatNumber(viewBox.x)} ${fern_formatNumber(viewBox.y)} ${fern_formatNumber(viewBox.width)} ${fern_formatNumber(viewBox.height)}`);
@@ -4599,6 +5147,9 @@ function fern_cleanForSave() {
   }
   for (const group of clone.querySelectorAll("[data-editor-grid]")) {
     group.remove();
+  }
+  for (const marquee of clone.querySelectorAll("[data-editor-marquee]")) {
+    marquee.remove();
   }
   for (const group of clone.querySelectorAll("[data-editor-backdrop]")) {
     group.remove();
@@ -5378,7 +5929,7 @@ async function fern_setupEditor() {
       }
       if (fernEditorMode === "select-node") {
         event.preventDefault();
-        fern_setEditorMode("select");
+        fern_setEditorMode("pan");
         return;
       }
       if (fernSelectedElement && fernSelectedElement.parentElement && fernSelectedElement.parentElement.tagName === "g" && fernSelectedElement.parentElement !== fernActiveSvg) {
@@ -5399,6 +5950,11 @@ async function fern_setupEditor() {
       if (keyLower === "v") {
         event.preventDefault();
         fern_setEditorMode("select");
+        return;
+      }
+      if (keyLower === "h") {
+        event.preventDefault();
+        fern_setEditorMode("pan");
         return;
       }
       if (keyLower === "g") {
@@ -5460,6 +6016,22 @@ async function fern_setupEditor() {
       }
       return;
     }
+
+    if (event.key === "ArrowLeft" || event.key === "ArrowRight" || event.key === "ArrowUp" || event.key === "ArrowDown") {
+      const step = fern_getNudgeStep(event.shiftKey);
+      let dx = 0;
+      let dy = 0;
+      if (event.key === "ArrowLeft") dx = -step;
+      if (event.key === "ArrowRight") dx = step;
+      if (event.key === "ArrowUp") dy = -step;
+      if (event.key === "ArrowDown") dy = step;
+
+      if (fern_nudgeSelection(dx, dy)) {
+        event.preventDefault();
+        return;
+      }
+    }
+
     if (event.key !== "Delete" && event.key !== "Backspace") {
       return;
     }
@@ -5689,7 +6261,7 @@ async function fern_setupEditor() {
       fern_saveColorSet();
     } else if (actionButton && actionButton.dataset.action === "show-shortcuts") {
       fern_closeAllMenus();
-      fern_setEditorStatus("Shortcuts: Modes (V: Select, G: Group, A: Node, P: Draw) · Space pans · Ctrl/Cmd+Z undo · Ctrl/Cmd+X/C/V/D.");
+      fern_setEditorStatus("Shortcuts: H: Hand, V: Marquee, A: Shape / Nodes, G: Group, P: Draw · Space pans · Ctrl/Cmd+Z undo · Ctrl/Cmd+X/C/V/D.");
     } else if (actionButton && actionButton.dataset.action === "show-about") {
       fern_closeAllMenus();
       fern_setEditorStatus("Phrond Draw - edit SVG files locally.");

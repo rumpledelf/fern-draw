@@ -58,6 +58,28 @@ class FernDrawApplicationTests(unittest.TestCase):
         self.assertIn(b"fern_openSvg", fern_body)
         self.assertNotIn(b"/api/drawing", fern_body)
 
+    def test_selection_tools_have_distinct_roles(self) -> None:
+        _, _, fern_html = fern_request("/")
+        self.assertIn(b'data-mode="pan" title="Hand - pan canvas (H)"', fern_html)
+        self.assertIn(b'data-mode="select" title="Marquee select (V)"', fern_html)
+        self.assertIn(b'data-mode="select-node" title="Select shape or nodes (A)"', fern_html)
+        self.assertIn(b'data-mode="select-group" title="Select group (G)"', fern_html)
+
+        _, _, fern_javascript = fern_request("/static/fern-draw.js")
+        self.assertIn(b'let fernEditorMode = "pan"', fern_javascript)
+        self.assertIn(b'fernEditorMode === "select"', fern_javascript)
+        self.assertIn(b"fern_elementPointToCanvas", fern_javascript)
+        self.assertIn(b"fern_elementToCanvasMatrix", fern_javascript)
+        self.assertIn(b"fern_formatTransformNumber", fern_javascript)
+        self.assertIn(b"fern_geometryDistanceFromPointer", fern_javascript)
+        self.assertIn(b"fern_getNudgeStep", fern_javascript)
+        self.assertIn(b"fern_canvasDeltaToElement", fern_javascript)
+        self.assertIn(b"fern_nearestSelectableGroup", fern_javascript)
+        self.assertIn(b"fern_nudgeSelection", fern_javascript)
+        self.assertIn(b"fern_screenPixelsToElementUnits", fern_javascript)
+        self.assertIn(b"function fern_handlePointerUp(event)", fern_javascript)
+        self.assertIn(b'"is-panning", "is-drawing-path", "is-zoomed"', fern_javascript)
+
     def test_material_icon_font_is_served(self) -> None:
         fern_status, fern_headers, fern_body = fern_request(
             "/styles/MaterialIcons-Regular.woff2"

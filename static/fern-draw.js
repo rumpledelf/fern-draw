@@ -12,7 +12,26 @@ const FERN_PALETTE_STORAGE_KEY = "fern_draw_palette_v1";
 const FERN_TOOLBAR_COLORS_STORAGE_KEY = "fern_draw_toolbar_colors_v1";
 const FERN_LOADED_COLOR_SET_STORAGE_KEY = "fern_draw_loaded_color_set_v1";
 const FERN_TRACE_BACKDROP_KEY = "fern_draw_trace_backdrop_v1";
+const FERN_AUTOSAVE_DRAFT_KEY = "fern_draw_autosave_draft_key_v1";
 const FERN_DEFAULT_BLANK_ZOOM = 0.6;
+
+let fernDraftKey = null;
+
+function fern_getSessionDraftKey() {
+  try {
+    return sessionStorage.getItem(FERN_AUTOSAVE_DRAFT_KEY);
+  } catch (_e) {
+    return null;
+  }
+}
+
+function fern_setSessionDraftKey(key) {
+  fernDraftKey = key || `draft-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  try {
+    sessionStorage.setItem(FERN_AUTOSAVE_DRAFT_KEY, fernDraftKey);
+  } catch (_e) {}
+  return fernDraftKey;
+}
 
 function fern_autoSaveLocal() {
   if (!fernActiveSvg) {
@@ -23,8 +42,10 @@ function fern_autoSaveLocal() {
     const stage = fernEditor ? fernEditor.querySelector(".svg-editor-stage") : null;
     const payload = {
       content,
+      originalContent: fernOriginalSvgContent,
       fileName: fernCurrentFileName,
       accountAssetId: fernAccountAssetId || null,
+      draftKey: fernDraftKey || fern_setSessionDraftKey(),
       timestamp: Date.now(),
       traceBackdrop: fernTraceBackdrop,
       zoom: fernZoomLevel || 1,
@@ -42,7 +63,7 @@ function fern_clearAutoSaveLocal() {
   } catch (_e) {}
 }
 
-function fern_loadAutoSavedDraft() {
+function fern_loadAutoSavedDraft(expectedAssetId = null) {
   try {
     const raw = localStorage.getItem(FERN_AUTOSAVE_KEY);
     if (!raw) {
@@ -50,6 +71,14 @@ function fern_loadAutoSavedDraft() {
     }
     const payload = JSON.parse(raw);
     if (payload && payload.content && payload.content.trim().length > 0) {
+      if (expectedAssetId && payload.accountAssetId !== expectedAssetId) {
+        return false;
+      }
+      const sessionDraftKey = fern_getSessionDraftKey();
+      if (sessionDraftKey && (!payload.draftKey || payload.draftKey !== sessionDraftKey)) {
+        return false;
+      }
+      fern_setSessionDraftKey(payload.draftKey || sessionDraftKey);
       if (payload.accountAssetId) {
         fernAccountAssetId = payload.accountAssetId;
       }
@@ -60,6 +89,7 @@ function fern_loadAutoSavedDraft() {
         }
       }
       fern_loadLocalSvg(payload.content, payload.fileName || "untitled.svg");
+      fernOriginalSvgContent = payload.originalContent || payload.content;
       if (typeof payload.zoom === "number") {
         fernZoomLevel = Math.max(0.25, Math.min(6, payload.zoom));
         fern_applyZoom();
@@ -87,6 +117,10 @@ function fern_loadAutoSavedDraft() {
   return false;
 }
 const FERN_COMMON_ATTRS = ["stroke", "stroke-width", "fill", "opacity"];
+const FERN_PRESENTATION_ATTRS = new Set([
+  "fill", "stroke", "fill-opacity", "stroke-opacity", "stroke-width",
+  "stroke-linecap", "stroke-linejoin", "stroke-dasharray",
+]);
 const FERN_SHAPE_ATTRS = {
   path: [],
   rect: ["x", "y", "width", "height", "rx"],
@@ -1426,6 +1460,42 @@ function fern_colorToHex(colorStr, fallback = "#ffffff") {
   return fallback;
 }
 
+function fern_getPresentationAttr(element, attr, fallback = "") {
+  if (!element) {
+    return fallback;
+  }
+  const directValue = element.getAttribute(attr);
+  if (directValue !== null && directValue.trim() !== "") {
+    return directValue.trim();
+  }
+  try {
+    const computedValue = window.getComputedStyle(element).getPropertyValue(attr).trim();
+    return computedValue || fallback;
+  } catch (_e) {
+    return fallback;
+  }
+}
+
+function fern_getPresentationNumber(element, attr, fallback = "") {
+  const value = fern_getPresentationAttr(element, attr, fallback);
+  const number = Number.parseFloat(value);
+  return Number.isFinite(number) ? String(number) : fallback;
+}
+
+function fern_setEditableAttr(element, attr, value) {
+  element.setAttribute(attr, value);
+  if (FERN_PRESENTATION_ATTRS.has(attr)) {
+    element.style.setProperty(attr, value, "important");
+  }
+}
+
+function fern_removeEditableAttr(element, attr) {
+  element.removeAttribute(attr);
+  if (FERN_PRESENTATION_ATTRS.has(attr)) {
+    element.style.removeProperty(attr);
+  }
+}
+
 function fern_syncToolbarColors() {
   for (const swatch of fernEditor.querySelectorAll("[data-toolbar-swatch]")) {
     const color = fernToolbarColors[swatch.dataset.toolbarSwatch] || "#ffffff";
@@ -1437,7 +1507,7 @@ function fern_getGradientInfo(element) {
   if (!element || !fernActiveSvg) {
     return { isGradient: false, gradId: "", grad: null, stop1: "#FFFFFF", stop2: "#416A9B", angle: 90 };
   }
-  const fill = element.getAttribute("fill") || "";
+  const fill = fern_getPresentationAttr(element, "fill");
   const match = fill.match(/url\(#([^)]+)\)/);
   if (match) {
     const gradId = match[1];
@@ -1506,7 +1576,7 @@ function fern_setLinearGradient(element, stop1, stop2, angle = 90) {
     stops[1].setAttribute("stop-color", stop2);
   }
 
-  element.setAttribute("fill", `url(#${grad.id})`);
+  fern_setEditableAttr(element, "fill", `url(#${grad.id})`);
 }
 
 function fern_setToolbarColor(role, value, updateDefaults = true) {
@@ -1532,7 +1602,7 @@ function fern_setToolbarColor(role, value, updateDefaults = true) {
       const info = fern_getGradientInfo(el);
       fern_setLinearGradient(el, info.stop1, color, info.angle);
     } else {
-      el.setAttribute(role, color);
+      fern_setEditableAttr(el, role, color);
     }
   }
   fern_commitHistory();
@@ -1694,7 +1764,7 @@ function fern_getCurrentEditorColor() {
     return info.stop2;
   }
   if (fernToolbarEditSource === "selection" && fernSelectedElement && fernToolbarEditRole) {
-    const attrVal = fernSelectedElement.getAttribute(fernToolbarEditRole);
+    const attrVal = fern_getPresentationAttr(fernSelectedElement, fernToolbarEditRole);
     return fern_colorToHex(attrVal, "#FFFFFF");
   }
   return fernToolbarColors[fernToolbarEditRole] || "#FFFFFF";
@@ -2132,27 +2202,27 @@ function fern_renderInspector() {
   const selectedElements = fern_getSelectedElements();
   if (selectedElements.length > 1) {
     const first = selectedElements[0];
-    const fillVal = first.getAttribute("fill") || "";
+    const fillVal = fern_getPresentationAttr(first, "fill");
     const fillIsNone = fillVal === "none";
     const gradInfo = fern_getGradientInfo(first);
     const isGradient = gradInfo.isGradient;
     const fillHex = gradInfo.stop1;
     const gradStop2 = gradInfo.stop2;
 
-    const strokeVal = first.getAttribute("stroke") || "";
+    const strokeVal = fern_getPresentationAttr(first, "stroke");
     const strokeIsNone = strokeVal === "none" || strokeVal === "";
     const strokeHex = fern_colorToHex(strokeVal, "#ffffff");
 
-    const fillOpacityVal = first.getAttribute("fill-opacity");
+    const fillOpacityVal = fern_getPresentationAttr(first, "fill-opacity", "1");
     const fillOpacityPercent = Math.round(Number.parseFloat(fillOpacityVal || "1") * 100);
 
-    const strokeOpacityVal = first.getAttribute("stroke-opacity");
+    const strokeOpacityVal = fern_getPresentationAttr(first, "stroke-opacity", "1");
     const strokeOpacityPercent = Math.round(Number.parseFloat(strokeOpacityVal || "1") * 100);
 
-    const strokeWidth = first.getAttribute("stroke-width") || "1";
-    const linecap = first.getAttribute("stroke-linecap") || "butt";
-    const linejoin = first.getAttribute("stroke-linejoin") || "miter";
-    const dasharray = first.getAttribute("stroke-dasharray") || "";
+    const strokeWidth = fern_getPresentationNumber(first, "stroke-width", "1");
+    const linecap = fern_getPresentationAttr(first, "stroke-linecap", "butt");
+    const linejoin = fern_getPresentationAttr(first, "stroke-linejoin", "miter");
+    const dasharray = fern_getPresentationAttr(first, "stroke-dasharray");
 
     inspector.innerHTML = `
       <div class="svg-editor-selected">
@@ -2334,7 +2404,7 @@ function fern_renderInspector() {
   }
 
   const tag = fern_getTagName(fernSelectedElement);
-  const fillVal = fernSelectedElement.getAttribute("fill") || "";
+  const fillVal = fern_getPresentationAttr(fernSelectedElement, "fill");
   const fillIsNone = fillVal === "none";
   const gradInfo = fern_getGradientInfo(fernSelectedElement);
   const isGradient = gradInfo.isGradient;
@@ -2342,20 +2412,20 @@ function fern_renderInspector() {
   const gradStop2 = gradInfo.stop2;
   const gradAngle = gradInfo.angle;
 
-  const strokeVal = fernSelectedElement.getAttribute("stroke") || "";
+  const strokeVal = fern_getPresentationAttr(fernSelectedElement, "stroke");
   const strokeIsNone = strokeVal === "none" || strokeVal === "";
   const strokeHex = fern_colorToHex(strokeVal, "#ffffff");
 
-  const fillOpacityVal = fernSelectedElement.getAttribute("fill-opacity");
+  const fillOpacityVal = fern_getPresentationAttr(fernSelectedElement, "fill-opacity", "1");
   const fillOpacityPercent = Math.round(Number.parseFloat(fillOpacityVal || "1") * 100);
 
-  const strokeOpacityVal = fernSelectedElement.getAttribute("stroke-opacity");
+  const strokeOpacityVal = fern_getPresentationAttr(fernSelectedElement, "stroke-opacity", "1");
   const strokeOpacityPercent = Math.round(Number.parseFloat(strokeOpacityVal || "1") * 100);
 
-  const strokeWidth = fernSelectedElement.getAttribute("stroke-width") || "1";
-  const linecap = fernSelectedElement.getAttribute("stroke-linecap") || "butt";
-  const linejoin = fernSelectedElement.getAttribute("stroke-linejoin") || "miter";
-  const dasharray = fernSelectedElement.getAttribute("stroke-dasharray") || "";
+  const strokeWidth = fern_getPresentationNumber(fernSelectedElement, "stroke-width", "1");
+  const linecap = fern_getPresentationAttr(fernSelectedElement, "stroke-linecap", "butt");
+  const linejoin = fern_getPresentationAttr(fernSelectedElement, "stroke-linejoin", "miter");
+  const dasharray = fern_getPresentationAttr(fernSelectedElement, "stroke-dasharray");
 
   let geomFields = "";
   if (tag === "rect") {
@@ -2609,9 +2679,9 @@ function fern_updateSelectedAttr(event) {
   const value = input.value.trim();
   for (const el of targets) {
     if (value) {
-      el.setAttribute(input.dataset.attr, value);
+      fern_setEditableAttr(el, input.dataset.attr, value);
     } else {
-      el.removeAttribute(input.dataset.attr);
+      fern_removeEditableAttr(el, input.dataset.attr);
     }
   }
   if (fernEditorMode === "select-node") {
@@ -2696,7 +2766,7 @@ function fern_updateColorAttr(event) {
     const attr = colorInput.dataset.attrColor;
     fern_beginHistory();
     for (const el of targets) {
-      el.setAttribute(attr, colorInput.value);
+        fern_setEditableAttr(el, attr, colorInput.value);
     }
     const checkbox = fernEditor.querySelector(`[data-attr-none="${attr}"]`);
     if (checkbox) {
@@ -2709,10 +2779,10 @@ function fern_updateColorAttr(event) {
     fern_beginHistory();
     for (const el of targets) {
       if (noneInput.checked) {
-        el.setAttribute(attr, "none");
+        fern_setEditableAttr(el, attr, "none");
       } else {
         const picker = fernEditor.querySelector(`[data-attr-color="${attr}"]`);
-        el.setAttribute(attr, picker ? picker.value : "#ffffff");
+        fern_setEditableAttr(el, attr, picker ? picker.value : "#ffffff");
       }
     }
     fern_renderInspector();
@@ -4495,7 +4565,8 @@ function fern_handlePointerDown(event) {
 
     const pointInElem = fern_getElementPoint(event, targetElem);
     fernSelectedPointIndex = pointIdx;
-    if (event.shiftKey && fern_refHasPosition(ref)) {
+    const isEllipseRadius = ref.type === "ellipse-rx" || ref.type === "ellipse-ry";
+    if (event.shiftKey && fern_refHasPosition(ref) && !isEllipseRadius) {
       if (fernSelectedNodeIndices.has(fernSelectedPointIndex)) {
         fernSelectedNodeIndices.delete(fernSelectedPointIndex);
       } else {
@@ -4510,6 +4581,7 @@ function fern_handlePointerDown(event) {
       element: targetElem,
       ref,
       refs,
+      constrainEllipse: event.shiftKey && isEllipseRadius,
       mirrorControls: (event.shiftKey || Boolean(ref.mirrorControl)) && ref.role === "control",
       startPointerX: pointInElem.x,
       startPointerY: pointInElem.y,
@@ -4704,7 +4776,15 @@ function fern_handlePointerMove(event) {
     const x = fern_snap(fernPointDragState.startX + point.x - fernPointDragState.startPointerX);
     const y = fern_snap(fernPointDragState.startY + point.y - fernPointDragState.startPointerY);
     fernPointDragState.moved = fernPointDragState.moved || x !== fernPointDragState.startX || y !== fernPointDragState.startY;
-    fern_applyPointRef(dragElem, fernPointDragState.ref, x, y);
+    if (fernPointDragState.constrainEllipse) {
+      const radius = fernPointDragState.ref.type === "ellipse-rx"
+        ? Math.abs(x - fernPointDragState.ref.cx)
+        : Math.abs(y - fernPointDragState.ref.cy);
+      fern_setNumericAttr(dragElem, "rx", radius);
+      fern_setNumericAttr(dragElem, "ry", radius);
+    } else {
+      fern_applyPointRef(dragElem, fernPointDragState.ref, x, y);
+    }
     if (fernPointDragState.mirrorControls && fernPointDragState.ref.connectTo) {
       const anchor = fernPointDragState.ref.connectTo;
       const paired = fernPointDragState.ref.mirrorControl || fernPointDragState.refs.find((candidate) => (
@@ -4879,7 +4959,7 @@ function fern_handleDoubleClick(event) {
 
 function fern_sanitizeSvg(fernSvg) {
   const fernBlockedElements = new Set([
-    "script", "foreignobject", "iframe", "object", "embed", "audio", "video", "style",
+    "script", "foreignobject", "iframe", "object", "embed", "audio", "video",
   ]);
   const fernElements = [fernSvg, ...fernSvg.querySelectorAll("*")];
   for (const fernElement of fernElements) {
@@ -4888,6 +4968,13 @@ function fern_sanitizeSvg(fernSvg) {
       fernElement.remove();
       continue;
     }
+    if (fernTag === "style") {
+      fernElement.textContent = fernElement.textContent
+        .replace(/@import[^;{}]*;?/gi, "")
+        .replace(/url\s*\(\s*(?!["']?#)[^)]*\)/gi, "none")
+        .replace(/expression\s*\([^)]*\)/gi, "")
+        .replace(/-moz-binding\s*:[^;]+;?/gi, "");
+    }
     for (const fernAttribute of [...fernElement.attributes]) {
       const fernName = fernAttribute.name.toLowerCase();
       const fernValue = fernAttribute.value.trim();
@@ -4895,8 +4982,17 @@ function fern_sanitizeSvg(fernSvg) {
         fernElement.removeAttribute(fernAttribute.name);
       } else if ((fernName === "href" || fernName === "xlink:href") && !fernValue.startsWith("#")) {
         fernElement.removeAttribute(fernAttribute.name);
-      } else if (fernName === "style" && /(?:url\s*\(|@import|expression\s*\()/i.test(fernValue)) {
-        fernElement.removeAttribute(fernAttribute.name);
+      } else if (fernName === "style") {
+        const safeStyle = fernValue
+          .replace(/@import[^;{}]*;?/gi, "")
+          .replace(/url\s*\(\s*(?!["']?#)[^)]*\)/gi, "none")
+          .replace(/expression\s*\([^)]*\)/gi, "")
+          .replace(/-moz-binding\s*:[^;]+;?/gi, "");
+        if (safeStyle.trim()) {
+          fernElement.setAttribute(fernAttribute.name, safeStyle);
+        } else {
+          fernElement.removeAttribute(fernAttribute.name);
+        }
       } else if (/url\s*\(/i.test(fernValue) && !/url\s*\(\s*["']?#/i.test(fernValue)) {
         fernElement.removeAttribute(fernAttribute.name);
       }
@@ -5051,6 +5147,7 @@ async function fern_loadAccountAssetFromUrl() {
   const response = await fetch(`/account/assets/${assetId}/`, { credentials: "same-origin" });
   if (!response.ok) return false;
   fernAccountAssetId = assetId;
+  fern_setSessionDraftKey(`account-${assetId}`);
   fern_loadLocalSvg(await response.text(), asset.logical_name || "untitled.svg");
   fern_setEditorStatus(`Opened ${asset.logical_name || "drawing"} from your account library.`);
   return true;
@@ -5061,6 +5158,7 @@ function fern_newSvg() {
     return;
   }
   fern_clearAutoSaveLocal();
+  fern_setSessionDraftKey();
   fern_loadLocalSvg(FERN_EMPTY_SVG, "untitled.svg");
   fern_setEditorStatus("New drawing.");
 }
@@ -5083,6 +5181,7 @@ async function fern_openSvg() {
         types: [{ description: "SVG drawing", accept: { "image/svg+xml": [".svg"] } }],
       });
       const fernFile = await fernHandle.getFile();
+      fern_setSessionDraftKey();
       fern_loadLocalSvg(await fern_readLocalFile(fernFile), fernFile.name, fernHandle);
     } catch (fernError) {
       if (fernError.name !== "AbortError") {
@@ -5101,6 +5200,7 @@ async function fern_openFallbackFile(fernEvent) {
     return;
   }
   try {
+    fern_setSessionDraftKey();
     fern_loadLocalSvg(await fern_readLocalFile(fernFile), fernFile.name);
   } catch (fernError) {
     fern_setEditorStatus(fernError.message || "Could not open SVG.");
@@ -5605,9 +5705,24 @@ async function fern_saveSvgToAccount() {
   }
 }
 
-function fern_revertSvg() {
-  fern_loadLocalSvg(fernOriginalSvgContent, fernCurrentFileName, fernLocalFileHandle);
-  fern_setEditorStatus(`Reverted ${fernCurrentFileName}.`);
+async function fern_revertSvg() {
+  try {
+    if (fernLocalFileHandle) {
+      const file = await fernLocalFileHandle.getFile();
+      fern_loadLocalSvg(await fern_readLocalFile(file), file.name, fernLocalFileHandle);
+    } else if (fernAccountAssetId) {
+      const response = await fetch(`/account/assets/${fernAccountAssetId}/`, { credentials: "same-origin" });
+      if (!response.ok) {
+        throw new Error("Could not reopen the account drawing.");
+      }
+      fern_loadLocalSvg(await response.text(), fernCurrentFileName);
+    } else {
+      fern_loadLocalSvg(fernOriginalSvgContent, fernCurrentFileName);
+    }
+    fern_setEditorStatus(`Reopened ${fernCurrentFileName}.`);
+  } catch (fernError) {
+    fern_setEditorStatus(fernError.message || "Could not reopen the drawing.");
+  }
 }
 
 function fern_addShape(type) {
@@ -6298,8 +6413,11 @@ async function fern_setupEditor() {
   window.addEventListener("resize", fern_updateCanvasStageSize);
   window.addEventListener("beforeunload", fern_autoSaveLocal);
 
-  const loadedAccountAsset = await fern_loadAccountAssetFromUrl().catch(() => false);
-  if (!loadedAccountAsset && !fern_loadAutoSavedDraft()) {
+  const requestedAssetId = new URLSearchParams(window.location.search).get("asset");
+  const restoredDraft = fern_loadAutoSavedDraft(requestedAssetId);
+  const loadedAccountAsset = restoredDraft ? false : await fern_loadAccountAssetFromUrl().catch(() => false);
+  if (!loadedAccountAsset && !restoredDraft) {
+    fern_setSessionDraftKey();
     fern_loadLocalSvg(FERN_EMPTY_SVG, "untitled.svg");
     fernZoomLevel = FERN_DEFAULT_BLANK_ZOOM;
     fern_applyZoom();

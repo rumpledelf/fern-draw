@@ -370,11 +370,14 @@ function fern_setEditorMode(mode) {
   fern_updateModeControls();
 
   if (fernActiveSvg) {
-    fernActiveSvg.classList.remove("is-mode-select", "is-mode-select-group", "is-mode-select-node", "is-mode-draw", "is-mode-pan");
+    fernActiveSvg.classList.remove("is-mode-select", "is-mode-select-group", "is-mode-select-node", "is-mode-draw", "is-mode-pan", "is-mode-text");
     fernActiveSvg.classList.add(`is-mode-${mode}`);
   }
 
-  if (mode === "pan") {
+  if (mode === "text") {
+    fern_clearHandles();
+    fern_setEditorStatus("Text: click to add text or edit existing text.");
+  } else if (mode === "pan") {
     fern_clearHandles();
     fern_setEditorStatus("Hand tool: drag anywhere on the canvas to pan.");
   } else if (mode === "draw") {
@@ -810,6 +813,14 @@ function fern_geometryDistanceFromPointer(element, event) {
   const pointerY = event.clientY;
   let points = [];
 
+  if (tag === "text") {
+    const bounds = element.getBoundingClientRect();
+    return Math.hypot(
+      Math.max(bounds.left - pointerX, 0, pointerX - bounds.right),
+      Math.max(bounds.top - pointerY, 0, pointerY - bounds.bottom)
+    );
+  }
+
   if (tag === "line") {
     points = [
       fern_localPointToScreen(element, fern_numericAttr(element, "x1"), fern_numericAttr(element, "y1")),
@@ -859,6 +870,7 @@ function fern_geometryDistanceFromPointer(element, event) {
 }
 
 function fern_selectableTarget(target, event = null) {
+  target = target?.closest("text") || target;
   if (!fernActiveSvg) {
     return null;
   }
@@ -876,7 +888,8 @@ function fern_selectableTarget(target, event = null) {
     offsets.sort((first, second) => Math.hypot(...first) - Math.hypot(...second));
     for (const [ox, oy] of offsets) {
       const rawList = document.elementsFromPoint(event.clientX + ox, event.clientY + oy);
-      for (const el of rawList) {
+      for (const hit of rawList) {
+        const el = hit?.closest("text") || hit;
         if (!el || el === fernActiveSvg || !fernActiveSvg.contains(el)) continue;
         if (
           el.closest("[data-editor-handles]") ||
@@ -3170,6 +3183,15 @@ function fern_getPathPointRefs(element) {
 
 function fern_getPointRefs(element) {
   const tag = fern_getTagName(element);
+  if (tag === "text") {
+    const { x, y, width, height } = element.getBBox();
+    return [
+      { type: "shape-corner", x, y },
+      { type: "shape-corner", x: x + width, y },
+      { type: "shape-corner", x: x + width, y: y + height },
+      { type: "shape-corner", x, y: y + height },
+    ];
+  }
   if (tag === "line") {
     return [
       { type: "attr-pair", xAttr: "x1", yAttr: "y1", x: fern_numericAttr(element, "x1"), y: fern_numericAttr(element, "y1") },
@@ -3345,7 +3367,8 @@ function fern_renderPointHandles() {
 
       const selectedClass = isPrimary && (index === fernSelectedPointIndex || fernSelectedNodeIndices.has(index)) ? " is-active-point" : "";
       handle.setAttribute("class", `${isControl ? "svg-point-handle svg-point-control" : "svg-point-handle svg-point-anchor"}${selectedClass}`);
-      handle.setAttribute("data-point-index", String(index));
+      // Text corners mark the shape bounds; movement uses the shared shape drag.
+      if (ref.type !== "shape-corner") handle.setAttribute("data-point-index", String(index));
       handle.setAttribute("data-element-index", String(elemIdx));
       group.append(handle);
     }
@@ -4052,6 +4075,7 @@ function fern_moveElement(element, dx, dy, original) {
     return;
   }
   if (tag === "text") {
+    element.querySelectorAll("tspan[x]").forEach(span => fern_setNumericAttr(span, "x", original.x + dx));
     fern_setNumericAttr(element, "x", original.x + dx);
     fern_setNumericAttr(element, "y", original.y + dy);
     return;
@@ -4476,10 +4500,16 @@ function fern_ungroupSelected() {
 }
 
 function fern_handlePointerDown(event) {
+  if (event.button === 2) return;
   if (!fernActiveSvg) {
     return;
   }
 
+  if (fernEditorMode === "text" && event.button === 0 && !fernSpacePressed) {
+    event.preventDefault();
+    fern_openTextEditor(event.target.closest("text"), fern_getCanvasPoint(event));
+    return;
+  }
   const point = fern_getCanvasPoint(event);
   const handle = event.target.closest("[data-point-index]");
   const resizeHandle = event.target.closest("[data-resize-handle]");
@@ -4623,8 +4653,16 @@ function fern_handlePointerDown(event) {
     }
   }
 
+  // A gesture that changes selection must not also move the new selection.
+  // Include geometric hits (such as whitespace inside a text box).
+  const hitExistingSelection = clickedOnSelected || (target && currentSelected.includes(target));
+  if (event.shiftKey || (target && !hitExistingSelection)) {
+    event.preventDefault();
+    return;
+  }
+
   let elementsToDrag = fern_getSelectedElements();
-  if (elementsToDrag.length > 0 && (clickedOnSelected || target)) {
+  if (elementsToDrag.length > 0 && hitExistingSelection) {
     if (event.altKey) {
       const clones = [];
       for (const el of elementsToDrag) {
@@ -4923,6 +4961,12 @@ function fern_handlePointerUp(event) {
 
 function fern_handleDoubleClick(event) {
   if (!fernActiveSvg) return;
+  const text = event.target.closest("text");
+  if (text) {
+    event.preventDefault();
+    fern_openTextEditor(text);
+    return;
+  }
   const target = fern_selectableTarget(event.target, event);
   if (target) {
     if (target.tagName === "g") {
@@ -5033,9 +5077,14 @@ function fern_importSvg(content) {
   }
 
   const nextSvg = fern_sanitizeSvg(document.importNode(rootSvg, true));
+  for (const text of nextSvg.querySelectorAll("text")) {
+    if (!text.hasAttribute("paint-order") && !text.style.paintOrder) {
+      text.setAttribute("paint-order", "stroke fill");
+    }
+  }
   nextSvg.classList.remove(
     "is-mode-select", "is-mode-select-group", "is-mode-select-node",
-    "is-mode-draw", "is-mode-pan", "is-panning", "is-drawing-path", "is-zoomed",
+    "is-mode-draw", "is-mode-pan", "is-mode-text", "is-panning", "is-drawing-path", "is-zoomed",
   );
   nextSvg.classList.add("icon-editor-svg");
   nextSvg.classList.add(`is-mode-${fernEditorMode}`);
@@ -5228,7 +5277,7 @@ function fern_cleanForSave() {
   const clone = fernActiveSvg.cloneNode(true);
   clone.classList.remove(
     "icon-editor-svg", "is-mode-select", "is-mode-select-group", "is-mode-select-node",
-    "is-mode-draw", "is-mode-pan", "is-panning", "is-drawing-path", "is-zoomed",
+    "is-mode-draw", "is-mode-pan", "is-mode-text", "is-panning", "is-drawing-path", "is-zoomed",
   );
   if (!clone.getAttribute("class")) {
     clone.removeAttribute("class");
@@ -5836,6 +5885,14 @@ async function fern_setupEditor() {
   }
 
   const canvasContainer = fernEditor.querySelector("[data-svg-canvas]");
+  canvasContainer?.addEventListener("contextmenu", event => {
+    const target = fern_selectableTarget(event.target, event);
+    const text = event.target.closest("text") || (target && fern_getTagName(target) === "text" ? target : null);
+    if (!text || !fernActiveSvg?.contains(text)) return;
+    event.preventDefault();
+    fern_selectElements([text]);
+    fern_openTextEditor(text);
+  });
   const stageContainer = fernEditor.querySelector(".svg-editor-stage") || (canvasContainer ? canvasContainer.parentElement : null);
   if (stageContainer) {
     stageContainer.addEventListener("wheel", fern_handleWheel, { passive: false });
@@ -6218,7 +6275,12 @@ async function fern_setupEditor() {
         fern_setCanvasAnchor(anchorCell.dataset.anchor);
       }
     } else if (modeButton) {
-      fern_setEditorMode(modeButton.dataset.mode);
+      const selected = fern_getSelectedElements();
+      if (modeButton.dataset.mode === "text" && selected.length === 1 && fern_getTagName(selected[0]) === "text") {
+        fern_openTextEditor(selected[0]);
+      } else {
+        fern_setEditorMode(modeButton.dataset.mode);
+      }
     } else if (canvasBgButton && canvasBgButton.tagName === "BUTTON") {
       fern_setCanvasBackground(canvasBgButton.dataset.canvasBg);
       fern_closeAllMenus();
@@ -6427,3 +6489,109 @@ async function fern_setupEditor() {
 }
 
 fern_setupEditor().catch((fernError) => fern_setEditorStatus(fernError.message));
+
+// Text content and typography are committed together as a single undo step.
+let fernTextTarget = null;
+let fernTextPoint = null;
+const fernTextDialog = document.querySelector("[data-text-dialog]");
+const fernTextContent = fernTextDialog.querySelector("[data-text-content]");
+const fernTextSize = fernTextDialog.querySelector("[data-text-size]");
+const fernTextAlign = fernTextDialog.querySelector("[data-text-align]");
+const fernTextBold = fernTextDialog.querySelector("[data-text-bold]");
+const fernTextItalic = fernTextDialog.querySelector("[data-text-italic]");
+const fernTextPicker = new FernFontPicker(fernTextDialog.querySelector("[data-text-font]"));
+const fernTextReady = fernTextPicker.loadDefaults().catch(() => {
+  fernTextDialog.querySelector("[data-text-error]").textContent = "Default fonts could not load. Close and reopen Text to retry.";
+});
+function fern_previewText() {
+  fernTextContent.style.textAlign = { start: "left", middle: "center", end: "right" }[fernTextAlign.value];
+  fernTextContent.style.fontFamily = fernTextPicker.value;
+  fernTextContent.style.fontSize = `${Number(fernTextSize.value) || 16}px`;
+  fernTextContent.style.fontWeight = fernTextBold.checked ? "700" : "400";
+  fernTextContent.style.fontStyle = fernTextItalic.checked ? "italic" : "normal";
+}
+async function fern_openTextEditor(target, point) {
+  fernTextTarget = target;
+  fernTextPoint = point;
+  fernTextDialog.querySelector("[data-text-error]").textContent = "";
+  fernTextContent.value = target ? (target.children.length ? Array.from(target.children, span => span.textContent === "\u200b" ? "" : span.textContent).join("\n") : target.textContent) : "";
+  if (target) {
+    const style = getComputedStyle(target);
+    fernTextAlign.value = ["start", "middle", "end"].includes(style.textAnchor) ? style.textAnchor : "start";
+    fernTextSize.value = parseFloat(style.fontSize) || 16;
+    fernTextBold.checked = Number(style.fontWeight) >= 600 || style.fontWeight === "bold";
+    fernTextItalic.checked = style.fontStyle === "italic";
+  }
+  fernTextDialog.showModal();
+  await fernTextReady;
+  if (fernTextPicker.select.disabled) {
+    try {
+      await fernTextPicker.loadDefaults();
+      fernTextDialog.querySelector("[data-text-error]").textContent = "";
+    } catch (_) {
+      fernTextDialog.querySelector("[data-text-error]").textContent = "Default fonts could not load. Close and reopen Text to retry.";
+      return;
+    }
+  }
+  if (target) fernTextPicker.value = target.getAttribute("font-family") || getComputedStyle(target).fontFamily;
+  fern_previewText();
+  if (fernTextDialog.open) fernTextContent.focus();
+}
+function fern_preserveTextLeftEdge(text, left) {
+  const dx = left - text.getBBox().x;
+  fern_setNumericAttr(text, "x", fern_numericAttr(text, "x") + dx);
+  for (const span of text.querySelectorAll("tspan[x]")) {
+    fern_setNumericAttr(span, "x", fern_numericAttr(span, "x") + dx);
+  }
+}
+
+function fern_applyText() {
+  if (!fernTextSize.reportValidity() || !fernTextPicker.value) return;
+  if (!fernTextContent.value.trim()) {
+    fernTextDialog.querySelector("[data-text-error]").textContent = "Enter some text.";
+    return;
+  }
+  fern_beginHistory();
+  const text = fernTextTarget || document.createElementNS(FERN_SVG_NS, "text");
+  const alignmentChanged = fernTextTarget && getComputedStyle(text).textAnchor !== fernTextAlign.value;
+  const previousLeft = alignmentChanged ? text.getBBox().x : null;
+  if (!fernTextTarget) {
+    text.setAttribute("x", fern_formatNumber(fernTextPoint.x));
+    text.setAttribute("y", fern_formatNumber(fernTextPoint.y));
+    text.setAttribute("fill", fernToolbarColors.fill || "#ffffff");
+    fernActiveSvg.append(text);
+  }
+  const attrs = {"text-anchor": fernTextAlign.value, "font-family": fernTextPicker.value, "font-size": fernTextSize.value, "font-weight": fernTextBold.checked ? "700" : "400", "font-style": fernTextItalic.checked ? "italic" : "normal"};
+  for (const [name, value] of Object.entries(attrs)) {
+    text.style.removeProperty(name);
+    text.setAttribute(name, value);
+  }
+  // Fill covers the internal overlaps in a font's glyph contours.
+  text.setAttribute("paint-order", "stroke fill");
+  text.setAttribute("xml:space", "preserve");
+  text.style.whiteSpace = "pre";
+  text.replaceChildren(...fernTextContent.value.split("\n").map((line, index) => {
+    const span = document.createElementNS(FERN_SVG_NS, "tspan");
+    span.setAttribute("x", text.getAttribute("x") || "0");
+    span.setAttribute("dy", index ? "1.2em" : "0");
+    span.textContent = line || "\u200b";
+    return span;
+  }));
+  if (previousLeft !== null) fern_preserveTextLeftEdge(text, previousLeft);
+  fern_commitHistory();
+  fernTextDialog.close();
+  fern_selectElements([text]);
+  fern_setEditorMode("select-node");
+  fern_autoSaveLocal();
+}
+fernTextDialog.addEventListener("input", fern_previewText);
+fernTextDialog.querySelector("[data-text-apply]").addEventListener("click", fern_applyText);
+fernTextDialog.querySelectorAll("[data-text-cancel]").forEach(button => {
+  button.addEventListener("click", () => fernTextDialog.close());
+});
+fernTextContent.addEventListener("keydown", event => {
+  if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
+    event.preventDefault();
+    fern_applyText();
+  }
+});

@@ -188,6 +188,7 @@
                   <button class="chip-btn chip-btn-icon" type="button" data-add="polygon" title="Add Polygon" aria-label="Add Polygon">
                     <svg viewBox="0 0 24 24" style="width: 18px; height: 18px; min-width: 18px; min-height: 18px; display: inline-block; vertical-align: middle;" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round" aria-hidden="true"><polygon points="12,2 22,9.3 18.2,21.5 5.8,21.5 2,9.3"/></svg>
                   </button>
+                  <button class="chip-btn chip-btn-icon" type="button" data-mode="text" title="Text" aria-label="Text"><span class="material-icons" aria-hidden="true">text_fields</span></button>
                 </div>
               </div>
               <div class="toolbar-group">
@@ -467,6 +468,31 @@
             <button class="chip-btn chip-btn-primary" type="button" data-action="close-trace-dialog">Done</button>
           </div>
         </dialog>
+        <dialog class="draw-color-dialog draw-text-dialog" data-text-dialog aria-labelledby="draw-text-title">
+          <div class="draw-color-dialog-header">
+            <div>
+              <p class="field-label">Typography</p>
+              <h2 id="draw-text-title">Edit text</h2>
+            </div>
+            <button class="chip-btn chip-btn-icon" type="button" data-text-cancel aria-label="Close dialog" title="Close"><span class="material-icons" aria-hidden="true">close</span></button>
+          </div>
+          <div class="draw-text-options">
+            <label><span class="subgroup-title">Font</span><select class="select-pill" data-text-font></select></label>
+            <label><span class="subgroup-title">Size</span><input class="select-pill" data-text-size type="number" min="0.1" step="any" value="16"></label>
+            <label><span class="subgroup-title">Align</span><select class="select-pill" data-text-align><option value="start">Left</option><option value="middle">Center</option><option value="end">Right</option></select></label>
+            <div class="chip-row">
+              <label><span class="subgroup-title">Bold</span><input type="checkbox" data-text-bold></label>
+              <label><span class="subgroup-title">Italic</span><input type="checkbox" data-text-italic></label>
+            </div>
+          </div>
+          <label><span class="subgroup-title">Text</span><textarea class="select-pill" data-text-content wrap="off" rows="5" spellcheck="true" aria-describedby="draw-text-hint"></textarea></label>
+          <p class="draw-dialog-hint" id="draw-text-hint">Shift+Enter for a new line. Enter to apply. Lines do not wrap.</p>
+          <p class="draw-dialog-hint" data-text-error role="status"></p>
+          <div class="draw-color-dialog-actions draw-color-dialog-footer">
+            <button class="chip-btn chip-btn-primary" type="button" data-text-apply><span class="material-icons" aria-hidden="true">check</span>Apply</button>
+            <button class="chip-btn" type="button" data-text-cancel><span class="material-icons" aria-hidden="true">close</span>Cancel</button>
+          </div>
+        </dialog>
       </main>
       {{site_footer}}
     </div>
@@ -477,6 +503,7 @@
         <a href="/">Return to Phrond</a>
       </div>
     </div>
+    <script src="static/fern-font-picker.js" defer></script>
     <script src="static/fern-draw.js" defer></script>
   </body>
 </html>

@@ -1795,17 +1795,14 @@ input[type="range"] {
 }
 
 .icon-editor-svg.is-mode-select-node,
-.icon-editor-svg.is-mode-select-node > * {
+.icon-editor-svg.is-mode-select-node > *,
+.icon-editor-svg.is-mode-select-node text,
+.icon-editor-svg.is-mode-select-node text * {
   cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'%3E%3Cpath d='M2 2 L2 18 L6.5 13.5 L10.5 21.5 L13.5 20 L9.5 12 L15 12 Z' fill='%23ffffff' stroke='%23111111' stroke-width='1.5' stroke-linejoin='round'/%3E%3Crect x='14' y='14' width='7' height='7' fill='%23ffffff' stroke='%23111111' stroke-width='1.5'/%3E%3C/svg%3E") 2 2, default;
 }
 
 .icon-editor-svg.is-mode-select-node .svg-point-handle {
   cursor: pointer;
-}
-
-.icon-editor-svg.is-mode-select-node > .is-svg-selected,
-.icon-editor-svg.is-mode-select-node > g.is-svg-selected * {
-  cursor: move;
 }
 
 /* Modal Dialogs */
@@ -2063,3 +2060,30 @@ input[type="range"] {
     color: #d8caac;
   }
 }
+
+.draw-text-dialog { width: min(680px, calc(100% - 2rem)); }
+.draw-text-options {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 5rem 6rem auto;
+  align-items: end;
+  gap: 0.75rem;
+  margin-bottom: 0.9rem;
+}
+.draw-text-options .select-pill { width: 100%; min-width: 0; }
+.draw-text-dialog textarea {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  max-width: none;
+  min-height: 9rem;
+  overflow: auto;
+  white-space: pre;
+  resize: vertical;
+}
+.draw-text-dialog [data-text-error]:empty { display: none; }
+@media (max-width: 560px) {
+  .draw-text-options { grid-template-columns: minmax(0, 1fr) 5rem; }
+  .draw-text-options > .chip-row { grid-column: 1 / -1; }
+}
+.svg-editor-canvas svg.is-mode-text { cursor: text; }

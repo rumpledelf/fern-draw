@@ -13,6 +13,9 @@ const FERN_TOOLBAR_COLORS_STORAGE_KEY = "fern_draw_toolbar_colors_v1";
 const FERN_LOADED_COLOR_SET_STORAGE_KEY = "fern_draw_loaded_color_set_v1";
 const FERN_TRACE_BACKDROP_KEY = "fern_draw_trace_backdrop_v1";
 const FERN_AUTOSAVE_DRAFT_KEY = "fern_draw_autosave_draft_key_v1";
+const FERN_ACCOUNT_PROJECT_KEY = "fern_draw_project_v1";
+const FERN_ACCOUNT_PROJECT_NAME_KEY = "fern_draw_project_name_v1";
+const FERN_ACCOUNT_ASSET_KEY = "fern_draw_asset_v1";
 const FERN_DEFAULT_BLANK_ZOOM = 0.6;
 
 let fernDraftKey = null;
@@ -44,7 +47,9 @@ function fern_autoSaveLocal() {
       content,
       originalContent: fernOriginalSvgContent,
       fileName: fernCurrentFileName,
-      accountAssetId: fernAccountAssetId || null,
+      accountAssetId: fernAccountAssetId || localStorage.getItem(FERN_ACCOUNT_ASSET_KEY) || null,
+      accountProjectId: fernAccountProjectId || localStorage.getItem(FERN_ACCOUNT_PROJECT_KEY) || null,
+      accountProjectName: localStorage.getItem(FERN_ACCOUNT_PROJECT_NAME_KEY) || null,
       draftKey: fernDraftKey || fern_setSessionDraftKey(),
       timestamp: Date.now(),
       traceBackdrop: fernTraceBackdrop,
@@ -81,6 +86,14 @@ function fern_loadAutoSavedDraft(expectedAssetId = null) {
       fern_setSessionDraftKey(payload.draftKey || sessionDraftKey);
       if (payload.accountAssetId) {
         fernAccountAssetId = payload.accountAssetId;
+        localStorage.setItem(FERN_ACCOUNT_ASSET_KEY, payload.accountAssetId);
+      } else {
+        fernAccountAssetId = localStorage.getItem(FERN_ACCOUNT_ASSET_KEY) || null;
+      }
+      if (payload.accountProjectId) {
+        fern_rememberAccountProject(payload.accountProjectId, payload.accountProjectName || localStorage.getItem(FERN_ACCOUNT_PROJECT_NAME_KEY) || "");
+      } else {
+        fernAccountProjectId = localStorage.getItem(FERN_ACCOUNT_PROJECT_KEY) || null;
       }
       if (payload.traceBackdrop) {
         fernTraceBackdrop = { ...fernTraceBackdrop, ...payload.traceBackdrop };
@@ -151,6 +164,7 @@ let fernTraceBackdrop = {
 let fernTraceActiveAnchor = "c";
 let fernCurrentFileName = "untitled.svg";
 let fernAccountAssetId = null;
+let fernAccountProjectId = null;
 let fernPendingNamedSave = null;
 let fernLocalFileHandle = null;
 let fernOriginalSvgContent = FERN_EMPTY_SVG;
@@ -5165,7 +5179,9 @@ function fern_commitFileName() {
   fern_setCurrentFile(name, null);
   fernEditor.querySelector("[data-file-name-dialog]")?.close();
   if (pendingAction === "computer") fern_saveSvg();
+  if (pendingAction === "computer-as") fern_saveSvg(true);
   if (pendingAction === "account") fern_saveSvgToAccount();
+  if (pendingAction === "account-as") fern_saveSvgToAccount(true);
 }
 
 function fern_requireFileName(action) {
@@ -5196,6 +5212,7 @@ async function fern_loadAccountAssetFromUrl() {
   const response = await fetch(`/account/assets/${assetId}/`, { credentials: "same-origin" });
   if (!response.ok) return false;
   fernAccountAssetId = assetId;
+  fern_rememberAccountProject(asset.project_id || "", asset.project_name || "");
   fern_setSessionDraftKey(`account-${assetId}`);
   fern_loadLocalSvg(await response.text(), asset.logical_name || "untitled.svg");
   fern_setEditorStatus(`Opened ${asset.logical_name || "drawing"} from your account library.`);
@@ -5638,13 +5655,13 @@ function fern_confirmDiscardChanges() {
   );
 }
 
-async function fern_saveSvg() {
+async function fern_saveSvg(saveAs = false) {
   if (!fernActiveSvg) {
     return;
   }
 
   const fernContent = fern_cleanForSave();
-  let fernHandle = fernLocalFileHandle;
+  let fernHandle = saveAs ? null : fernLocalFileHandle;
   if (!fernHandle && "showSaveFilePicker" in window) {
     try {
       fernHandle = await window.showSaveFilePicker({
@@ -5706,7 +5723,35 @@ function fern_uniqueAccountFileName(fileName, assets) {
   return candidate;
 }
 
-async function fern_saveSvgToAccount() {
+function fern_rememberAccountProject(projectId, projectName) {
+  if (!projectId) return;
+  fernAccountProjectId = projectId;
+  localStorage.setItem(FERN_ACCOUNT_PROJECT_KEY, projectId);
+  localStorage.setItem(FERN_ACCOUNT_PROJECT_NAME_KEY, projectName || "");
+}
+
+function fern_rememberAccountAsset(assetId) {
+  if (!assetId) return;
+  fernAccountAssetId = assetId;
+  localStorage.setItem(FERN_ACCOUNT_ASSET_KEY, assetId);
+}
+
+function fern_restoreAccountLinkage() {
+  fernAccountAssetId = fernAccountAssetId || localStorage.getItem(FERN_ACCOUNT_ASSET_KEY) || null;
+  fernAccountProjectId = fernAccountProjectId || localStorage.getItem(FERN_ACCOUNT_PROJECT_KEY) || null;
+}
+
+async function fern_verifyAccountLinkage() {
+  fern_restoreAccountLinkage();
+  if (!fernAccountAssetId) return false;
+  const asset = await window.FernAccountSave.verifyAsset(fernAccountAssetId);
+  if (!asset) return false;
+  fern_rememberAccountAsset(asset.id || fernAccountAssetId);
+  fern_rememberAccountProject(asset.project_id || fernAccountProjectId, asset.project_name || localStorage.getItem(FERN_ACCOUNT_PROJECT_NAME_KEY) || "");
+  return true;
+}
+
+async function fern_saveSvgToAccount(saveAs = false, retryingFromBrokenLink = false) {
   if (!fernActiveSvg) {
     return;
   }
@@ -5716,40 +5761,43 @@ async function fern_saveSvgToAccount() {
       fern_setEditorStatus("Log into your account to save SVGs to your account.");
       return;
     }
-    const csrfResponse = await fetch("/account/assets/", {
-      credentials: "same-origin",
-      headers: { Accept: "application/json" },
-    });
-    const csrfContentType = csrfResponse.headers.get("content-type") || "";
-    if (csrfResponse.redirected || !csrfResponse.ok || csrfContentType.indexOf("application/json") === -1) {
-      throw new Error("Log into your account to save SVGs to your account.");
+    await window.FernAccountSave.json("/account/assets/");
+    if (!saveAs && fernAccountAssetId) {
+      const linked = await fern_verifyAccountLinkage();
+      if (!linked) {
+        fern_setEditorStatus("Choose a project to reconnect this browser draft.");
+        await fern_saveSvgToAccount(true, true);
+        return;
+      }
     }
-    const accountAssetsPayload = await csrfResponse.json();
+    let projectTarget = null;
+    if (saveAs || !fernAccountAssetId) {
+      projectTarget = await window.FernAccountSave.chooseProject(localStorage.getItem(FERN_ACCOUNT_PROJECT_NAME_KEY) || fernCurrentFileName.replace(/\.svg$/i, ""));
+      if (!projectTarget) return;
+    }
     const accountFileName = fernCurrentFileName;
-    const accountUrl = fernAccountAssetId ? `/account/assets/${fernAccountAssetId}/` : "/account/assets/";
-    const response = await fetch(accountUrl, {
-      method: fernAccountAssetId ? "PUT" : "POST",
-      credentials: "same-origin",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json",
-        "X-XSRF-TOKEN": decodeURIComponent(fern_getCookie("XSRF-TOKEN")),
-      },
-      body: JSON.stringify({
-        logical_name: accountFileName,
-        content: fern_cleanForSave(),
-        mime_type: "image/svg+xml",
-      }),
+    const payload = await window.FernAccountSave.saveAsset({
+      assetId: fernAccountAssetId || "",
+      saveAs,
+      logicalName: accountFileName,
+      content: fern_cleanForSave(),
+      mimeType: "image/svg+xml",
+      originatingToolId: "draw",
+      projectId: projectTarget?.project_id || fernAccountProjectId || localStorage.getItem(FERN_ACCOUNT_PROJECT_KEY) || "",
+      projectName: projectTarget && !projectTarget.project_id ? projectTarget.name : "",
     });
-    const payload = await response.json();
-    if (!response.ok) {
-      throw new Error(payload.message || "Could not save the SVG to your account.");
-    }
-    fernAccountAssetId = payload.id || fernAccountAssetId;
+    fern_rememberAccountAsset(payload.id || fernAccountAssetId);
+    fern_rememberAccountProject(payload.project_id || projectTarget?.project_id, projectTarget?.name || projectTarget?.project_name || localStorage.getItem(FERN_ACCOUNT_PROJECT_NAME_KEY) || "");
     fern_setCurrentFile(accountFileName, null);
     fernOriginalSvgContent = fern_cleanForSave();
+    fern_autoSaveLocal();
     fern_setEditorStatus(`Saved ${payload.logical_name || accountFileName} to your account library.`);
   } catch (fernError) {
+    if (!saveAs && !retryingFromBrokenLink && window.FernAccountSave?.isAccountLinkError?.(fernError)) {
+      fern_setEditorStatus("Choose a project to reconnect this browser draft.");
+      await fern_saveSvgToAccount(true, true);
+      return;
+    }
     fern_setEditorStatus(fernError.message || "Could not save the SVG to your account.");
   }
 }
@@ -5831,6 +5879,7 @@ function fern_closeAllMenus() {
 }
 
 async function fern_setupEditor() {
+  fern_restoreAccountLinkage();
   if (!fernEditor) {
     return;
   }
@@ -6411,12 +6460,18 @@ async function fern_setupEditor() {
     } else if (actionButton && actionButton.dataset.action === "save") {
       fern_closeAllMenus();
       if (fern_requireFileName("computer")) fern_saveSvg();
+    } else if (actionButton && actionButton.dataset.action === "save-as") {
+      fern_closeAllMenus();
+      if (fern_requireFileName("computer-as")) fern_saveSvg(true);
     } else if (actionButton && actionButton.dataset.action === "copy-svg") {
       fern_closeAllMenus();
       fern_copySvgToClipboard();
     } else if (actionButton && actionButton.dataset.action === "save-to-account") {
       fern_closeAllMenus();
       if (fern_requireFileName("account")) fern_saveSvgToAccount();
+    } else if (actionButton && actionButton.dataset.action === "save-to-account-as") {
+      fern_closeAllMenus();
+      if (fern_requireFileName("account-as")) fern_saveSvgToAccount(true);
     } else if (actionButton && actionButton.dataset.action === "edit-color-set") {
       fern_closeAllMenus();
       fern_openColorEditor();

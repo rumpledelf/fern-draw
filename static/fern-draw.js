@@ -8,6 +8,7 @@ const FERN_DEFAULT_COLORS = [
   "#8B9291", "#D58FA3", "#C9655A", "#D98B4A", "#9278AD", "#E0BD58",
 ];
 const FERN_AUTOSAVE_KEY = "fern_draw_autosave_v1";
+const FERN_RECOVERY_ENDPOINT = "/tools/draw/api/recovery/current-drawing";
 const FERN_PALETTE_STORAGE_KEY = "fern_draw_palette_v1";
 const FERN_TOOLBAR_COLORS_STORAGE_KEY = "fern_draw_toolbar_colors_v1";
 const FERN_LOADED_COLOR_SET_STORAGE_KEY = "fern_draw_loaded_color_set_v1";
@@ -59,6 +60,16 @@ function fern_autoSaveLocal() {
       mode: fernEditorMode || "pan",
     };
     localStorage.setItem(FERN_AUTOSAVE_KEY, JSON.stringify(payload));
+    void fetch(FERN_RECOVERY_ENDPOINT, {
+      method: "POST",
+      credentials: "same-origin",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify(payload),
+      keepalive: true,
+    }).catch(() => {});
   } catch (_e) {}
 }
 
@@ -66,6 +77,19 @@ function fern_clearAutoSaveLocal() {
   try {
     localStorage.removeItem(FERN_AUTOSAVE_KEY);
   } catch (_e) {}
+}
+
+function fern_localDraftDiffersFromAccount(assetId, accountContent) {
+  try {
+    const payload = JSON.parse(localStorage.getItem(FERN_AUTOSAVE_KEY) || "null");
+    return Boolean(
+      payload?.content
+      && payload.accountAssetId === assetId
+      && payload.content.trim() !== String(accountContent || "").trim()
+    );
+  } catch (_e) {
+    return false;
+  }
 }
 
 function fern_loadAutoSavedDraft(expectedAssetId = null) {
@@ -223,6 +247,49 @@ function fern_loadLocalPalette() {
     fernPaletteColors = normalized;
     return true;
   } catch (_e) {
+    return false;
+  }
+}
+
+async function fern_loadRecoveredDraft(expectedAssetId = null) {
+  try {
+    const response = await fetch(FERN_RECOVERY_ENDPOINT, {
+      credentials: "same-origin",
+      headers: { Accept: "application/json" },
+    });
+    if (!response.ok || response.redirected) {
+      return false;
+    }
+    const payload = await response.json();
+    if (!payload || !payload.content || payload.content.trim().length === 0) {
+      return false;
+    }
+    if (expectedAssetId && payload.accountAssetId !== expectedAssetId) {
+      return false;
+    }
+    fern_setSessionDraftKey(payload.draftKey || fern_getSessionDraftKey());
+    if (payload.accountAssetId) {
+      fernAccountAssetId = payload.accountAssetId;
+      localStorage.setItem(FERN_ACCOUNT_ASSET_KEY, payload.accountAssetId);
+    }
+    if (payload.accountProjectId) {
+      fern_rememberAccountProject(payload.accountProjectId, payload.accountProjectName || "");
+    }
+    if (payload.traceBackdrop) {
+      fernTraceBackdrop = { ...fernTraceBackdrop, ...payload.traceBackdrop };
+    }
+    fern_loadLocalSvg(payload.content, payload.fileName || "untitled.svg");
+    fernOriginalSvgContent = payload.originalContent || payload.content;
+    if (typeof payload.zoom === "number") {
+      fernZoomLevel = Math.max(0.25, Math.min(6, payload.zoom));
+      fern_applyZoom();
+    }
+    if (payload.mode) {
+      fern_setEditorMode(payload.mode);
+    }
+    fern_setEditorStatus(`Recovered draft: ${payload.fileName || "untitled.svg"}`);
+    return true;
+  } catch (_error) {
     return false;
   }
 }
@@ -1881,52 +1948,19 @@ async function fern_refreshSession() {
   );
   fernSessionAuthenticated = sharedSessionAuthenticated;
   try {
-    const response = await fetch("/account/color-sets/", {
-      credentials: "same-origin",
-      headers: { Accept: "application/json" },
-    });
-    const contentType = response.headers.get("content-type") || "";
-    if (response.redirected || !response.ok || contentType.indexOf("application/json") === -1) {
-      throw new Error("Session unavailable.");
-    }
-    fernSessionAuthenticated = true;
+    const session = window.FernAccount
+      ? await window.FernAccount.current({ force: true })
+      : await window.FernAccountSave.current({ force: true });
+    fernSessionAuthenticated = Boolean(session.authenticated);
   } catch (_error) {
     fernSessionAuthenticated = sharedSessionAuthenticated;
   }
   fern_renderColorSetAccess();
 }
 
-function fern_getCookie(name) {
-  const prefix = `${name}=`;
-  const cookie = document.cookie.split(";").map((part) => part.trim()).find((part) => part.startsWith(prefix));
-  return cookie ? cookie.slice(prefix.length) : "";
-}
-
-async function fern_getAccountColorSetRequest() {
-  const csrfResponse = await fetch("/account/color-sets/", {
-    credentials: "same-origin",
-    headers: { Accept: "application/json" },
-  });
-  const contentType = csrfResponse.headers.get("content-type") || "";
-  if (csrfResponse.redirected || contentType.indexOf("application/json") === -1) {
-    throw new Error("Sign in to use saved colors.");
-  }
-  return {
-    "X-XSRF-TOKEN": decodeURIComponent(fern_getCookie("XSRF-TOKEN")),
-  };
-}
-
 async function fern_refreshSavedColorSets() {
   try {
-    const response = await fetch("/account/color-sets/", {
-      credentials: "same-origin",
-      headers: { Accept: "application/json" },
-    });
-    const contentType = response.headers.get("content-type") || "";
-    if (response.redirected || contentType.indexOf("application/json") === -1) {
-      throw new Error("Sign in to use saved colors.");
-    }
-    const payload = await response.json();
+    const payload = await window.FernAccountSave.fetchJson("/account/color-sets/");
     const select = fernEditor.querySelector("[data-saved-color-set]");
     const loadedId = fernPaletteDraftColors ? fernPaletteDraftLoadedColorSetId : fernLoadedColorSetId;
     if (select) {
@@ -1956,23 +1990,13 @@ async function fern_saveColorSet() {
     }
   }
   try {
-    const csrfHeaders = await fern_getAccountColorSetRequest();
     const isUpdate = Boolean(loadedId);
     const url = isUpdate ? `/account/color-sets/${loadedId}/` : "/account/color-sets/";
-    const saveResponse = await fetch(url, {
+    const payload = await window.FernAccountSave.fetchJson(url, {
       method: isUpdate ? "PUT" : "POST",
-      credentials: "same-origin",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json",
-        ...csrfHeaders,
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name: name.trim(), colors, originating_tool_id: "draw" }),
     });
-    const payload = await saveResponse.json();
-    if (!saveResponse.ok) {
-      throw new Error(payload.message || "Could not save the color set.");
-    }
     if (fernPaletteDraftColors) {
       fernPaletteDraftLoadedColorSetId = payload.id;
       fernPaletteDraftLoadedColorSetName = payload.name;
@@ -1997,12 +2021,8 @@ async function fern_loadColorSet() {
     return;
   }
   try {
-    const response = await fetch(`/account/color-sets/${id}/`, {
-      credentials: "same-origin",
-      headers: { Accept: "application/json" },
-    });
-    const payload = await response.json();
-    if (!response.ok || !Array.isArray(payload.colors) || payload.colors.length !== 12) {
+    const payload = await window.FernAccountSave.fetchJson(`/account/color-sets/${id}/`);
+    if (!Array.isArray(payload.colors) || payload.colors.length !== 12) {
       throw new Error(payload.message || "Could not load the color set.");
     }
     const loadedColors = payload.colors.map((color) => fern_normalizePaletteColor(color));
@@ -5204,18 +5224,17 @@ function fern_loadLocalSvg(fernContent, fernName, fernHandle = null) {
 async function fern_loadAccountAssetFromUrl() {
   const assetId = new URLSearchParams(window.location.search).get("asset");
   if (!assetId) return false;
-  const listResponse = await fetch("/account/assets/", { credentials: "same-origin", headers: { Accept: "application/json" } });
-  if (!listResponse.ok) return false;
-  const listPayload = await listResponse.json();
-  const asset = (listPayload.assets || []).find((item) => item.id === assetId);
+  const asset = await window.FernAccountSave.fetchJson(`/account/assets/${assetId}/`).catch(() => null);
   if (!asset) return false;
-  const response = await fetch(`/account/assets/${assetId}/`, { credentials: "same-origin" });
-  if (!response.ok) return false;
+  const localDraftDiffers = fern_localDraftDiffersFromAccount(assetId, asset.content);
   fernAccountAssetId = assetId;
   fern_rememberAccountProject(asset.project_id || "", asset.project_name || "");
   fern_setSessionDraftKey(`account-${assetId}`);
-  fern_loadLocalSvg(await response.text(), asset.logical_name || "untitled.svg");
+  fern_loadLocalSvg(asset.content || "", asset.logical_name || "untitled.svg");
   fern_setEditorStatus(`Opened ${asset.logical_name || "drawing"} from your account library.`);
+  if (localDraftDiffers) {
+    window.alert("This account drawing differs from the local draft in this browser. The account version has been loaded, and the local draft was not applied.");
+  }
   return true;
 }
 
@@ -5761,7 +5780,6 @@ async function fern_saveSvgToAccount(saveAs = false, retryingFromBrokenLink = fa
       fern_setEditorStatus("Log into your account to save SVGs to your account.");
       return;
     }
-    await window.FernAccountSave.json("/account/assets/");
     if (!saveAs && fernAccountAssetId) {
       const linked = await fern_verifyAccountLinkage();
       if (!linked) {
@@ -5808,11 +5826,8 @@ async function fern_revertSvg() {
       const file = await fernLocalFileHandle.getFile();
       fern_loadLocalSvg(await fern_readLocalFile(file), file.name, fernLocalFileHandle);
     } else if (fernAccountAssetId) {
-      const response = await fetch(`/account/assets/${fernAccountAssetId}/`, { credentials: "same-origin" });
-      if (!response.ok) {
-        throw new Error("Could not reopen the account drawing.");
-      }
-      fern_loadLocalSvg(await response.text(), fernCurrentFileName);
+      const payload = await window.FernAccountSave.fetchJson(`/account/assets/${fernAccountAssetId}/`);
+      fern_loadLocalSvg(payload.content || "", fernCurrentFileName);
     } else {
       fern_loadLocalSvg(fernOriginalSvgContent, fernCurrentFileName);
     }
@@ -6531,9 +6546,10 @@ async function fern_setupEditor() {
   window.addEventListener("beforeunload", fern_autoSaveLocal);
 
   const requestedAssetId = new URLSearchParams(window.location.search).get("asset");
-  const restoredDraft = fern_loadAutoSavedDraft(requestedAssetId);
-  const loadedAccountAsset = restoredDraft ? false : await fern_loadAccountAssetFromUrl().catch(() => false);
-  if (!loadedAccountAsset && !restoredDraft) {
+  const loadedAccountAsset = requestedAssetId ? await fern_loadAccountAssetFromUrl().catch(() => false) : false;
+  const restoredDraft = loadedAccountAsset ? false : fern_loadAutoSavedDraft(requestedAssetId);
+  const recoveredDraft = loadedAccountAsset || restoredDraft ? false : await fern_loadRecoveredDraft(requestedAssetId);
+  if (!loadedAccountAsset && !restoredDraft && !recoveredDraft) {
     fern_setSessionDraftKey();
     fern_loadLocalSvg(FERN_EMPTY_SVG, "untitled.svg");
     fernZoomLevel = FERN_DEFAULT_BLANK_ZOOM;

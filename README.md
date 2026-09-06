@@ -15,6 +15,14 @@ cd ../fern-landing
 php artisan serve
 ```
 
+## Draft And Account Precedence
+
+Draw keeps an automatic browser draft for recovery. Opening a drawing from the
+account library with an `asset` URL always loads the account copy. If a local
+draft for that same account asset differs, Draw tells the user that the account
+copy won and the local draft was not applied. Local drafts for other or unsaved
+drawings remain separate.
+
 Then access Draw at `http://127.0.0.1:8000/tools/draw/`.
 
 ## Selection tools

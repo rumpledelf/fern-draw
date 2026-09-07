@@ -17,11 +17,18 @@ php artisan serve
 
 ## Draft And Account Precedence
 
-Draw keeps an automatic browser draft for recovery. Opening a drawing from the
-account library with an `asset` URL always loads the account copy. If a local
-draft for that same account asset differs, Draw tells the user that the account
-copy won and the local draft was not applied. Local drafts for other or unsaved
-drawings remain separate.
+Draw's persistence must be audited against the account boundary used by
+Publish. Browser drafts are only for work created by a genuinely anonymous user
+who has never used an account in that browser profile. Once the user has logged
+in, Draw must use account assets rather than maintaining a competing browser
+copy. If authentication expires, keep unsaved changes in the current tab and
+ask the user to log in; do not silently switch the drawing to browser storage.
+
+When opening an account drawing with an `asset` URL, the account copy is
+authoritative. Any different legacy local copy must not be merged or silently
+restored. Tell the user before discarding it, then remove the stale local copy.
+This is a required persistence rule, not confirmation that every Draw path has
+already been verified.
 
 Then access Draw at `http://127.0.0.1:8000/tools/draw/`.
 

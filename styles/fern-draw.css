@@ -740,6 +740,12 @@ input[type="range"] {
   padding-block: 0.35rem;
 }
 
+.site-toolbar .chip-btn-icon {
+  flex: 0 0 2.1rem;
+  height: 2.1rem;
+  padding: 0;
+}
+
 .site-toolbar .svg-editor-duplicate {
   grid-template-columns: 2.5rem auto;
   gap: 0.35rem;
@@ -1181,7 +1187,8 @@ input[type="range"] {
   align-items: center;
 }
 
-.chip-btn {
+.chip-btn,
+.draw-align-button {
   background: var(--fern-control-bg);
   border: 1px solid var(--fern-control-border);
   color: var(--fern-text);
@@ -1200,13 +1207,15 @@ input[type="range"] {
   transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease;
 }
 
-.chip-btn:hover {
+.chip-btn:hover,
+.draw-align-button:hover {
   border-color: var(--fern-accent-soft);
   color: var(--fern-text);
 }
 
 .chip-btn.is-active,
-.chip-btn:active {
+.chip-btn:active,
+.draw-align-button:active {
   background: var(--fern-selected);
   border-color: rgba(90, 126, 168, 0.5);
   color: var(--fern-accent-pale);
@@ -1515,7 +1524,8 @@ input[type="range"] {
 
 .svg-editor-panel {
   display: grid;
-  grid-template-rows: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto auto;
   align-content: start;
   gap: 0.9rem;
   padding: 1rem;
@@ -1523,6 +1533,44 @@ input[type="range"] {
   background: var(--fern-panel);
   overflow-y: auto;
   max-height: 100%;
+}
+
+.svg-editor-panel,
+.svg-editor-panel .panel-section,
+.svg-editor-panel .svg-editor-fields,
+.svg-editor-panel .inspector-grid,
+.svg-editor-panel .inspector-color-row,
+.svg-editor-panel .color-picker-group,
+.svg-editor-panel label,
+.svg-editor-panel input,
+.svg-editor-panel select {
+  min-width: 0;
+}
+
+.svg-editor-panel .chip-btn-icon {
+  flex: 0 0 2.1rem;
+  width: 2.1rem;
+  height: 2.1rem;
+  padding: 0;
+}
+
+.svg-editor-panel input,
+.svg-editor-panel select,
+.svg-editor-panel button {
+  max-width: 100%;
+}
+
+.svg-editor-panel input[type="range"] {
+  width: 100%;
+  margin-inline: 0;
+}
+
+.svg-editor-panel .color-input-wrapper {
+  flex-wrap: wrap;
+}
+
+.svg-editor-panel-status {
+  overflow-wrap: anywhere;
 }
 
 .svg-editor-panel-status {
@@ -1543,6 +1591,79 @@ input[type="range"] {
   display: grid;
   grid-template-columns: 80px 1fr;
   gap: 0.5rem;
+}
+
+[data-radial-copy-controls][hidden] {
+  display: none;
+}
+
+.draw-align-panel[hidden] {
+  display: none;
+}
+
+.draw-align-panel {
+  gap: 0.9rem;
+  padding-bottom: 0.75rem;
+  margin-bottom: 0.5rem;
+  border-bottom: 1px solid var(--fern-divider-border);
+}
+
+.draw-align-group {
+  display: grid;
+  gap: 0.4rem;
+  min-width: 0;
+}
+
+.draw-align-buttons {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.4rem;
+}
+
+.draw-align-button {
+  min-width: 0;
+  height: 2.1rem;
+  padding: 0 0.4rem;
+}
+
+.draw-align-button svg {
+  display: block;
+  width: 2.25rem;
+  height: 1.5rem;
+  max-width: 100%;
+}
+
+.draw-align-guide {
+  stroke: var(--fern-accent-pale);
+}
+
+.draw-align-button:focus-visible {
+  outline: 2px solid var(--fern-accent-pale);
+  outline-offset: 2px;
+}
+
+.draw-gap-controls {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.draw-gap-controls .select-pill {
+  height: 2.1rem;
+}
+
+.draw-gap-controls input[type="number"]::-webkit-inner-spin-button {
+  opacity: 1;
+}
+
+[data-radial-copy-controls] .svg-editor-duplicate {
+  grid-template-columns: 3.5rem minmax(0, 1fr);
+  align-items: center;
+}
+
+[data-radial-copy-controls] {
+  margin-top: 0.75rem;
 }
 
 .svg-editor-fields {

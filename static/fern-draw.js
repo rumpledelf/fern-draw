@@ -626,6 +626,7 @@ function fern_captureEditorState() {
   return {
     markup: clone.innerHTML,
     selectedElementIndex: elements.indexOf(fernSelectedElement),
+    selectedElementIndices: fern_getSelectedElements().map(element => elements.indexOf(element)),
     fernSelectedPointIndex,
     fernSelectedNodeIndices: [...fernSelectedNodeIndices],
   };
@@ -690,12 +691,16 @@ function fern_restoreEditorState(state) {
   fernSelectedNodeIndices = new Set();
   fern_renderGrid();
 
-  const element = fern_editableElements()[state.selectedElementIndex] || null;
-  fern_selectElement(element);
+  const elements = fern_editableElements();
+  const selected = (state.selectedElementIndices || [state.selectedElementIndex])
+    .map(index => elements[index]).filter(Boolean);
+  fern_selectElements(selected);
+  const element = selected[0] || null;
   if (element) {
     fernSelectedPointIndex = state.fernSelectedPointIndex;
     fernSelectedNodeIndices = new Set(state.fernSelectedNodeIndices);
     fern_renderPointHandles();
+    fern_renderInspector();
   }
 }
 
@@ -707,6 +712,7 @@ function fern_undo() {
 
   fernRedoStack.push(fern_captureEditorState());
   fern_restoreEditorState(state);
+  fern_syncArrangementGaps(true);
   fern_updateHistoryControls();
   fern_setEditorStatus("Undid edit.");
 }
@@ -719,6 +725,7 @@ function fern_redo() {
 
   fernUndoStack.push(fern_captureEditorState());
   fern_restoreEditorState(state);
+  fern_syncArrangementGaps(true);
   fern_updateHistoryControls();
   fern_setEditorStatus("Redid edit.");
 }
@@ -1522,7 +1529,7 @@ function fern_fieldTemplate(attr, value, multiline = false) {
   `;
 }
 
-let fernCanvasBgMode = "dark";
+let fernCanvasBgMode = "light";
 
 function fern_colorToHex(colorStr, fallback = "#ffffff") {
   if (!colorStr || colorStr === "none" || colorStr === "transparent") {
@@ -2247,6 +2254,9 @@ function fern_renderInspector() {
   }
 
   const selectedElements = fern_getSelectedElements();
+  fern_syncArrangementGaps();
+  const radialControls = fernEditor.querySelector("[data-radial-copy-controls]");
+  if (radialControls) radialControls.hidden = selectedElements.length === 0;
   if (selectedElements.length > 1) {
     const first = selectedElements[0];
     const fillVal = fern_getPresentationAttr(first, "fill");
@@ -2317,31 +2327,9 @@ function fern_renderInspector() {
         </button>
       </div>
 
-      <div class="field-label" style="margin-top: 0.6rem;">Align Selection</div>
-      <div class="chip-row">
-        <button class="chip-btn chip-btn-icon" type="button" data-align="left" title="Align left" aria-label="Align left"><span class="material-icons">align_horizontal_left</span></button>
-        <button class="chip-btn chip-btn-icon" type="button" data-align="center-x" title="Align horizontal centers" aria-label="Align horizontal centers"><span class="material-icons">align_horizontal_center</span></button>
-        <button class="chip-btn chip-btn-icon" type="button" data-align="right" title="Align right" aria-label="Align right"><span class="material-icons">align_horizontal_right</span></button>
-        <button class="chip-btn chip-btn-icon" type="button" data-align="top" title="Align top" aria-label="Align top"><span class="material-icons">align_vertical_top</span></button>
-        <button class="chip-btn chip-btn-icon" type="button" data-align="center-y" title="Align vertical centers" aria-label="Align vertical centers"><span class="material-icons">align_vertical_center</span></button>
-        <button class="chip-btn chip-btn-icon" type="button" data-align="bottom" title="Align bottom" aria-label="Align bottom"><span class="material-icons">align_vertical_bottom</span></button>
-      </div>
 
-      <div class="field-label" style="margin-top: 0.6rem;">Transform</div>
-      <div class="chip-row">
-        <button class="chip-btn chip-btn-icon" type="button" data-transform-action="flip-h" title="Flip horizontally" aria-label="Flip horizontally">
-          <span class="material-icons" aria-hidden="true">flip</span>
-        </button>
-        <button class="chip-btn chip-btn-icon" type="button" data-transform-action="flip-v" title="Flip vertically" aria-label="Flip vertically">
-          <span class="material-icons" aria-hidden="true" style="transform: rotate(90deg); display: inline-block;">flip</span>
-        </button>
-        <button class="chip-btn chip-btn-icon" type="button" data-transform-action="rotate-cw" title="Rotate 90° clockwise" aria-label="Rotate 90° clockwise">
-          <span class="material-icons" aria-hidden="true">rotate_right</span>
-        </button>
-        <button class="chip-btn chip-btn-icon" type="button" data-transform-action="rotate-ccw" title="Rotate 90° counter-clockwise" aria-label="Rotate 90° counter-clockwise">
-          <span class="material-icons" aria-hidden="true">rotate_left</span>
-        </button>
-      </div>
+
+
 
       <div class="field-label" style="margin-top: 0.8rem;">Fill &amp; Stroke</div>
       <div class="inspector-color-row">
@@ -2402,21 +2390,21 @@ function fern_renderInspector() {
         <label><span>Width</span>
           <input class="select-pill" type="number" step="0.5" min="0" data-attr="stroke-width" value="${strokeWidth}" ${strokeIsNone ? 'disabled' : ''}>
         </label>
-        <label><span>Line Cap</span>
+        <label><span class="field-label">Line Cap</span>
           <select class="select-pill" data-attr="stroke-linecap">
             <option value="butt" ${linecap === "butt" ? "selected" : ""}>Butt</option>
             <option value="round" ${linecap === "round" ? "selected" : ""}>Round</option>
             <option value="square" ${linecap === "square" ? "selected" : ""}>Square</option>
           </select>
         </label>
-        <label><span>Line Join</span>
+        <label><span class="field-label">Line Join</span>
           <select class="select-pill" data-attr="stroke-linejoin">
             <option value="miter" ${linejoin === "miter" ? "selected" : ""}>Miter</option>
             <option value="round" ${linejoin === "round" ? "selected" : ""}>Round</option>
             <option value="bevel" ${linejoin === "bevel" ? "selected" : ""}>Bevel</option>
           </select>
         </label>
-        <label><span>Dash Array</span>
+        <label><span class="field-label">Dash Pattern</span>
           <input class="select-pill" type="text" data-attr="stroke-dasharray" value="${dasharray}" placeholder="e.g. 4 4">
         </label>
       </div>
@@ -2558,21 +2546,7 @@ function fern_renderInspector() {
       </button>
     </div>
 
-    <div class="field-label" style="margin-top: 0.6rem;">Transform</div>
-    <div class="chip-row">
-      <button class="chip-btn chip-btn-icon" type="button" data-transform-action="flip-h" title="Flip horizontally" aria-label="Flip horizontally">
-        <span class="material-icons" aria-hidden="true">flip</span>
-      </button>
-      <button class="chip-btn chip-btn-icon" type="button" data-transform-action="flip-v" title="Flip vertically" aria-label="Flip vertically">
-        <span class="material-icons" aria-hidden="true" style="transform: rotate(90deg); display: inline-block;">flip</span>
-      </button>
-      <button class="chip-btn chip-btn-icon" type="button" data-transform-action="rotate-cw" title="Rotate 90° clockwise" aria-label="Rotate 90° clockwise">
-        <span class="material-icons" aria-hidden="true">rotate_right</span>
-      </button>
-      <button class="chip-btn chip-btn-icon" type="button" data-transform-action="rotate-ccw" title="Rotate 90° counter-clockwise" aria-label="Rotate 90° counter-clockwise">
-        <span class="material-icons" aria-hidden="true">rotate_left</span>
-      </button>
-    </div>
+
 
     <div class="field-label" style="margin-top: 0.8rem;">Fill &amp; Stroke</div>
     <div class="inspector-color-row">
@@ -2637,7 +2611,7 @@ function fern_renderInspector() {
 
     <div class="inspector-grid" style="margin-top: 0.6rem;">
       <label>
-        <span>Line Cap</span>
+        <span class="field-label">Line Cap</span>
         <select class="select-pill" data-attr="stroke-linecap">
           <option value="butt" ${linecap === 'butt' ? 'selected' : ''}>butt</option>
           <option value="round" ${linecap === 'round' ? 'selected' : ''}>round</option>
@@ -2645,7 +2619,7 @@ function fern_renderInspector() {
         </select>
       </label>
       <label>
-        <span>Line Join</span>
+        <span class="field-label">Line Join</span>
         <select class="select-pill" data-attr="stroke-linejoin">
           <option value="miter" ${linejoin === 'miter' ? 'selected' : ''}>miter</option>
           <option value="round" ${linejoin === 'round' ? 'selected' : ''}>round</option>
@@ -2653,7 +2627,7 @@ function fern_renderInspector() {
         </select>
       </label>
       <label style="grid-column: 1 / -1;">
-        <span>Dash Pattern</span>
+        <span class="field-label">Dash Pattern</span>
         <input class="select-pill" type="text" data-attr="stroke-dasharray" value="${dasharray}" placeholder="e.g. 4 4">
       </label>
     </div>
@@ -4361,44 +4335,151 @@ function fern_handleWheel(event) {
   // Default wheel / two-finger trackpad swipe scrolls stage smoothly and naturally
 }
 
-function fern_alignSelected(mode) {
-  const elements = fern_getSelectedElements();
-  if (elements.length === 0 || !fernActiveSvg) {
+// Plan in canvas coordinates; nodes are zero-sized boxes.
+function fern_planArrangement(boxes, mode, axis = "x", requestedGap = null) {
+  const moves = boxes.map(() => ({ dx: 0, dy: 0 }));
+  if (boxes.length < 2) return { moves, gap: null };
+  if (mode === "distribute") {
+    const size = axis === "x" ? "width" : "height";
+    const order = boxes.map((box, index) => ({ box, index }))
+      .sort((a, b) => a.box[axis] - b.box[axis]);
+    const first = order[0].box;
+    const last = order[order.length - 1].box;
+    const gap = requestedGap ?? (
+      (last[axis] + last[size] - first[axis] - boxes.reduce((sum, box) => sum + box[size], 0))
+      / (boxes.length - 1)
+    );
+    let position = first[axis];
+    if (requestedGap !== null) {
+      const high = Math.max(...boxes.map(box => box[axis] + box[size]));
+      const span = boxes.reduce((sum, box) => sum + box[size], 0) + gap * (boxes.length - 1);
+      position = (first[axis] + high - span) / 2;
+    }
+    for (const { box, index } of order) {
+      moves[index][axis === "x" ? "dx" : "dy"] = position - box[axis];
+      position += box[size] + gap;
+    }
+    return { moves, gap };
+  }
+  const horizontal = ["left", "center-x", "right"].includes(mode);
+  const coordinate = horizontal ? "x" : "y";
+  const size = horizontal ? "width" : "height";
+  const fraction = ["center-x", "center-y"].includes(mode) ? 0.5
+    : ["right", "bottom"].includes(mode) ? 1 : 0;
+  const low = Math.min(...boxes.map(box => box[coordinate]));
+  const high = Math.max(...boxes.map(box => box[coordinate] + box[size]));
+  const target = low + (high - low) * fraction;
+  boxes.forEach((box, index) => {
+    moves[index][horizontal ? "dx" : "dy"] = target - box[coordinate] - box[size] * fraction;
+  });
+  return { moves, gap: null };
+}
+
+function fern_arrangementSelection(nodesOnly = false) {
+  const element = fernSelectedElement;
+  const indices = fernSelectedNodeIndices.size ? [...fernSelectedNodeIndices]
+    : fernSelectedPointIndex != null ? [fernSelectedPointIndex] : [];
+  if (fernEditorMode === "select-node" && element && indices.length) {
+    const tag = fern_getTagName(element);
+    let refs = fern_getPointRefs(element);
+    let selected = indices.map(index => refs[index]).filter(Boolean);
+    if (tag === "path") {
+      const ordinals = selected.map(ref => refs.filter(fern_refHasPosition).indexOf(ref)).filter(index => index >= 0);
+      // Normalize H/V and relative commands on a detached copy, without changing the drawing yet.
+      const copy = element.cloneNode(true);
+      copy.setAttribute("d", fern_absolutizePath(element.getAttribute("d") || ""));
+      refs = fern_getPointRefs(copy);
+      selected = ordinals.map(index => refs.filter(fern_refHasPosition)[index]).filter(Boolean);
+    } else {
+      selected = selected.filter(ref => ["attr-pair", "points-pair"].includes(ref.type));
+    }
+    const items = selected.map(ref => {
+      const point = fern_elementPointToCanvas(element, ref.x, ref.y);
+      return { ref, box: { x: point.x, y: point.y, width: 0, height: 0 } };
+    });
+    return { element, refs, items, nodes: true };
+  }
+  const elements = nodesOnly ? [] : fern_getSelectedElements();
+  return {
+    nodes: false,
+    items: elements.filter(element => !elements.some(parent => parent !== element && parent.contains(element)))
+      .map(element => ({ element, box: fern_getElementBoundingBox(element) })),
+  };
+}
+
+function fern_syncArrangementGaps(force = false) {
+  const boxes = fern_arrangementSelection().items.map(item => item.box);
+  for (const axis of ["x", "y"]) {
+    const input = fernEditor.querySelector(`[data-distribute-gap="${axis}"]`);
+    if (!input || (!force && document.activeElement === input)) continue;
+    const { gap } = fern_planArrangement(boxes, "distribute", axis);
+    input.value = gap === null ? "" : fern_formatNumber(gap);
+  }
+}
+
+function fern_arrangeSelection(mode, axis = "x", requestedGap = null, nodesOnly = false) {
+  if (!fernActiveSvg) return;
+  const selection = fern_arrangementSelection(nodesOnly);
+  const minimum = mode === "distribute" && requestedGap === null ? 3 : 2;
+  if (selection.items.length < minimum) {
+    fern_setEditorStatus(`Select at least ${minimum} ${nodesOnly || selection.nodes ? "nodes" : "shapes or nodes"}.`);
     return;
   }
-
-  const viewBox = fern_getViewBox();
-  const multi = elements.length > 1;
-  const targetBox = multi ? fern_getCombinedBoundingBox(elements) : viewBox;
-
-  for (const element of elements) {
-    const box = fern_getElementBoundingBox(element);
-    let dx = 0;
-    let dy = 0;
-
-    if (mode === "left") {
-      dx = (multi ? targetBox.x : viewBox.x) - box.x;
-    } else if (mode === "center-x") {
-      dx = (multi ? targetBox.cx : viewBox.cx) - (box.x + box.width / 2);
-    } else if (mode === "right") {
-      dx = (multi ? targetBox.x + targetBox.width : viewBox.x + viewBox.width) - (box.x + box.width);
-    } else if (mode === "top") {
-      dy = (multi ? targetBox.y : viewBox.y) - box.y;
-    } else if (mode === "center-y") {
-      dy = (multi ? targetBox.cy : viewBox.cy) - (box.y + box.height / 2);
-    } else if (mode === "bottom") {
-      dy = (multi ? targetBox.y + targetBox.height : viewBox.y + viewBox.height) - (box.y + box.height);
+  const plan = fern_planArrangement(selection.items.map(item => item.box), mode, axis, requestedGap);
+  if (!plan.moves.every(move => Number.isFinite(move.dx) && Number.isFinite(move.dy))) return;
+  const inverse = selection.nodes ? fern_elementToCanvasMatrix(selection.element)?.inverse() : null;
+  fern_beginHistory();
+  if (selection.nodes) {
+    const movedControls = new Set();
+    selection.items.forEach(({ ref }, index) => {
+      const { dx, dy } = plan.moves[index];
+      const localDx = inverse ? inverse.a * dx + inverse.c * dy : dx;
+      const localDy = inverse ? inverse.b * dx + inverse.d * dy : dy;
+      if (ref.type === "path-pair") {
+        fern_setAbsoluteNodePosition(ref, ref.x + localDx, ref.y + localDy);
+        for (const control of ref.controls || []) {
+          if (!movedControls.has(control)) {
+            fern_setAbsolutePathPair(control, control.x + localDx, control.y + localDy);
+            movedControls.add(control);
+          }
+        }
+      } else {
+        fern_applyPointRef(selection.element, ref, ref.x + localDx, ref.y + localDy);
+      }
+    });
+    if (fern_getTagName(selection.element) === "path") {
+      selection.element.setAttribute("d", fern_serializePathTokens(selection.refs[0].tokens));
+      fernSelectedNodeIndices = new Set(selection.items.map(item => selection.refs.indexOf(item.ref)));
+      fernSelectedPointIndex = [...fernSelectedNodeIndices][0] ?? null;
     }
-
-    fern_translateElementBy(element, dx, dy);
-  }
-
-  fern_renderInspector();
-  if (fernEditorMode === "select-node") {
-    fern_renderPointHandles();
   } else {
-    fern_renderSelectionBox(elements);
+    selection.items.forEach(({ element }, index) => {
+      fern_translateElementBy(element, plan.moves[index].dx, plan.moves[index].dy);
+    });
   }
+  fern_commitHistory();
+  fern_renderInspector();
+  if (fernEditorMode === "select-node") fern_renderPointHandles();
+  else fern_renderSelectionBox(fern_getSelectedElements());
+  if (plan.gap !== null) {
+    const input = fernEditor.querySelector(`[data-distribute-gap="${axis}"]`);
+    if (input) input.value = fern_formatNumber(plan.gap);
+  }
+  fern_setEditorStatus(mode === "distribute" ? "Selection distributed." : "Selection aligned.");
+}
+
+function fern_handleGapHistoryShortcut(event) {
+  if (!event.target?.matches?.("[data-distribute-gap]") || !(event.metaKey || event.ctrlKey)) return false;
+  const key = event.key.toLowerCase();
+  if (key !== "z" && key !== "y") return false;
+  event.preventDefault();
+  if (key === "y" || event.shiftKey) fern_redo();
+  else fern_undo();
+  return true;
+}
+
+function fern_alignSelected(mode, nodesOnly = false) {
+  fern_arrangeSelection(mode, "x", null, nodesOnly);
 }
 
 function fern_copySelected() {
@@ -4482,14 +4563,22 @@ function fern_duplicateSelectedRadially() {
         fernActiveSvg.appendChild(clone);
       }
       const existingTransform = clone.getAttribute("transform") || "";
-      clone.setAttribute("transform", `rotate(${fern_formatNumber(angle)} ${fern_formatNumber(cx)} ${fern_formatNumber(cy)}) ${existingTransform}`.trim());
+      const rotation = `rotate(${fern_formatNumber(angle)} ${fern_formatNumber(cx)} ${fern_formatNumber(cy)})`;
+      const parentMatrix = element.parentElement === fernActiveSvg
+        ? null : fern_elementToCanvasMatrix(element.parentElement);
+      const matrixTransform = (matrix) => `matrix(${[matrix.a, matrix.b, matrix.c, matrix.d, matrix.e, matrix.f].map(fern_formatTransformNumber).join(" ")})`;
+      // Convert into canvas coordinates, rotate, then return to the parent's coordinates.
+      const transform = parentMatrix
+        ? `${matrixTransform(parentMatrix.inverse())} ${rotation} ${matrixTransform(parentMatrix)}`
+        : rotation;
+      clone.setAttribute("transform", `${transform} ${existingTransform}`.trim());
       newElements.push(clone);
     }
   }
   fern_selectElements([...elements, ...newElements]);
   fern_commitHistory();
   fern_autoSaveLocal();
-  fern_setEditorStatus(`Created ${count} radial copies.`);
+  fern_setEditorStatus(`Created ${newElements.length} copies around the canvas center.`);
 }
 
 function fern_groupSelected() {
@@ -6000,6 +6089,14 @@ async function fern_setupEditor() {
     });
   }
 
+  fernEditor.querySelectorAll("[data-distribute-gap]").forEach(input => {
+    input.addEventListener("input", () => {
+      if (input.value.trim() && Number.isFinite(input.valueAsNumber)) {
+        fern_arrangeSelection("distribute", input.dataset.distributeGap, input.valueAsNumber);
+      }
+    });
+  });
+
   document.addEventListener("click", (event) => {
     if (!event.target.closest(".site-menu-item")) {
       fern_closeAllMenus();
@@ -6139,6 +6236,7 @@ async function fern_setupEditor() {
   });
 
   document.addEventListener("keydown", (event) => {
+    if (fern_handleGapHistoryShortcut(event)) return;
     const target = event.target;
     const isTextInput = target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT");
     if (isTextInput) {
@@ -6324,6 +6422,7 @@ async function fern_setupEditor() {
     const actionButton = event.target.closest("[data-action]");
     const addButton = event.target.closest("[data-add]");
     const alignButton = event.target.closest("[data-align]");
+    const distributeButton = event.target.closest("[data-distribute]");
     const nodeActionButton = event.target.closest("[data-node-action]");
     const layerButton = event.target.closest("[data-layer]");
     const groupButton = event.target.closest("[data-group-action]");
@@ -6332,7 +6431,13 @@ async function fern_setupEditor() {
     const paletteSlotButton = event.target.closest("[data-palette-slot]");
     const toolbarChoiceButton = event.target.closest("[data-toolbar-color-choice]");
 
-    if (anchorCell) {
+    if (actionButton?.dataset.action === "toggle-align-distribute") {
+      const panel = fernEditor.querySelector("#align-distribute-panel");
+      panel.hidden = !panel.hidden;
+      actionButton.setAttribute("aria-expanded", String(!panel.hidden));
+      actionButton.classList.toggle("is-active", !panel.hidden);
+      if (!panel.hidden) panel.scrollIntoView({ block: "nearest" });
+    } else if (anchorCell) {
       if (anchorCell.dataset.traceAnchor) {
         fern_setTraceAnchor(anchorCell.dataset.traceAnchor);
       } else if (anchorCell.dataset.anchor) {
@@ -6371,9 +6476,9 @@ async function fern_setupEditor() {
     } else if (addButton) {
       fern_addShape(addButton.dataset.add);
     } else if (alignButton) {
-      fern_beginHistory();
-      fern_alignSelected(alignButton.dataset.align);
-      fern_commitHistory();
+      fern_alignSelected(alignButton.dataset.align, alignButton.hasAttribute("data-align-nodes"));
+    } else if (distributeButton) {
+      fern_arrangeSelection("distribute", distributeButton.dataset.distribute);
     } else if (nodeActionButton && nodeActionButton.dataset.nodeAction === "corner") {
       fern_beginHistory();
       fern_setNodeMode("corner");

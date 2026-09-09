@@ -6,6 +6,7 @@
     <title>Phrond Draw</title>
     <link rel="stylesheet" href="styles/palette.css">
     <link rel="stylesheet" href="styles/fern-draw.css">
+    <link rel="stylesheet" href="/styles/fern-shared-dialogs.css">
     <link rel="stylesheet" href="/styles/fern-shared-color-controls.css?v=2">
     <script src="/scripts/gtm.js" defer></script>
     <script src="/scripts/account-save.js" defer></script>
@@ -38,7 +39,7 @@
                 <li class="site-submenu-divider"></li>
                 <li class="site-submenu-option" data-action="save">Save to computer</li>
                 <li class="site-submenu-option" data-action="save-as">Save to computer as...</li>
-                <li class="site-submenu-option" data-action="copy-svg">Copy SVG to clipboard</li>
+                <li class="site-submenu-divider" role="separator"></li>
                 <li class="site-submenu-option" data-action="save-to-account" data-account-action>Save to account</li>
                 <li class="site-submenu-option" data-action="save-to-account-as" data-account-action>Save to account as...</li>
               </ul>
@@ -56,6 +57,8 @@
                 <li class="site-submenu-option" data-action="cut">Cut</li>
                 <li class="site-submenu-option" data-action="copy">Copy</li>
                 <li class="site-submenu-option" data-action="paste">Paste</li>
+                <li class="site-submenu-divider" role="separator"></li>
+                <li class="site-submenu-option" data-action="copy-svg">Copy SVG to clipboard</li>
                 <li class="site-submenu-divider" role="separator"></li>
                 <li class="site-submenu-option" data-action="duplicate">Duplicate selection</li>
                 <li class="site-submenu-option" data-action="delete">Delete selection</li>
@@ -272,13 +275,13 @@
           <div class="svg-editor-coordinate" data-coordinate-readout aria-label="Viewport coordinates" aria-live="polite">--, --</div>
         </section>
 
-        <dialog class="draw-color-dialog" data-color-dialog aria-labelledby="draw-color-dialog-title">
-          <div class="draw-color-dialog-header">
+        <dialog class="fern-dialog draw-color-dialog" data-color-dialog aria-labelledby="draw-color-dialog-title">
+          <div class="fern-dialog-header draw-color-dialog-header">
             <div>
               <p class="field-label">Account library</p>
               <h2 id="draw-color-dialog-title">Edit colors</h2>
             </div>
-            <button class="chip-btn chip-btn-icon" type="button" data-action="color-dialog-cancel" aria-label="Close dialog" title="Close"><span class="material-icons" aria-hidden="true">close</span></button>
+            <button class="chip-btn chip-btn-icon fern-dialog-close" type="button" data-action="color-dialog-cancel" aria-label="Close dialog" title="Close"><span class="material-icons" aria-hidden="true">close</span></button>
           </div>
           <div class="fern-color-editor-layout">
             <section>
@@ -314,20 +317,20 @@
               </div>
             </section>
           </div>
-          <div class="draw-color-dialog-actions draw-color-dialog-footer">
+          <div class="fern-dialog-footer draw-color-dialog-actions draw-color-dialog-footer">
             <button class="chip-btn chip-btn-primary" type="button" data-action="color-dialog-ok"><span class="material-icons" aria-hidden="true">check</span>OK</button>
             <button class="chip-btn" type="button" data-action="color-dialog-cancel"><span class="material-icons" aria-hidden="true">close</span>Cancel</button>
             <button class="chip-btn" type="button" data-action="save-color-set" data-color-set-save-account hidden><span class="material-icons" aria-hidden="true">save</span>Save to account</button>
           </div>
         </dialog>
 
-        <dialog class="draw-toolbar-color-dialog" data-toolbar-color-dialog aria-labelledby="draw-toolbar-color-dialog-title">
-          <div class="draw-toolbar-color-dialog-header">
+        <dialog class="fern-dialog draw-toolbar-color-dialog" data-toolbar-color-dialog aria-labelledby="draw-toolbar-color-dialog-title">
+          <div class="fern-dialog-header draw-toolbar-color-dialog-header">
             <div>
               <p class="field-label">Drawing color</p>
               <h2 id="draw-toolbar-color-dialog-title">Edit Fill color</h2>
             </div>
-            <button class="chip-btn chip-btn-icon" type="button" data-action="close-toolbar-color-editor" aria-label="Close dialog" title="Close"><span class="material-icons" aria-hidden="true">close</span></button>
+            <button class="chip-btn chip-btn-icon fern-dialog-close" type="button" data-action="close-toolbar-color-editor" aria-label="Close dialog" title="Close"><span class="material-icons" aria-hidden="true">close</span></button>
           </div>
           <div class="draw-toolbar-color-controls">
             <div class="fern-color-picker-group">
@@ -343,36 +346,36 @@
           <div class="draw-toolbar-color-choices" data-toolbar-color-choices></div>
         </dialog>
 
-        <dialog class="draw-modal-dialog" data-file-name-dialog aria-labelledby="draw-file-name-dialog-title">
-          <div class="draw-dialog-header">
+        <dialog class="fern-dialog draw-modal-dialog" data-file-name-dialog aria-labelledby="draw-file-name-dialog-title">
+          <div class="fern-dialog-header draw-dialog-header">
             <div>
               <p class="field-label">Document</p>
               <h2 id="draw-file-name-dialog-title">Name this drawing</h2>
             </div>
-            <button class="chip-btn chip-btn-icon" type="button" data-action="close-file-name-dialog" aria-label="Close dialog" title="Close"><span class="material-icons" aria-hidden="true">close</span></button>
+            <button class="chip-btn chip-btn-icon fern-dialog-close" type="button" data-action="close-file-name-dialog" aria-label="Close dialog" title="Close"><span class="material-icons" aria-hidden="true">close</span></button>
           </div>
-          <div class="draw-dialog-body">
+          <div class="fern-dialog-body draw-dialog-body">
             <label class="draw-dialog-row-label">Drawing name
               <input class="select-pill" type="text" data-file-name-input value="untitled.svg" maxlength="160" autocomplete="off" spellcheck="false">
             </label>
             <p class="draw-dialog-hint">Choose a name before saving this drawing.</p>
           </div>
-          <div class="draw-dialog-actions">
+          <div class="fern-dialog-footer draw-dialog-actions">
             <button class="chip-btn" type="button" data-action="close-file-name-dialog"><span class="material-icons" aria-hidden="true">close</span>Cancel</button>
             <button class="chip-btn chip-btn-primary" type="button" data-action="commit-file-name"><span class="material-icons" aria-hidden="true">check</span>Set name</button>
           </div>
         </dialog>
 
         <!-- Canvas Dimensions Dialog -->
-        <dialog class="draw-modal-dialog draw-canvas-dialog" data-canvas-dialog aria-labelledby="draw-canvas-dialog-title">
-          <div class="draw-dialog-header">
+        <dialog class="fern-dialog draw-modal-dialog draw-canvas-dialog" data-canvas-dialog aria-labelledby="draw-canvas-dialog-title">
+          <div class="fern-dialog-header draw-dialog-header">
             <div>
               <p class="field-label">Viewport &amp; Document</p>
               <h2 id="draw-canvas-dialog-title">Canvas dimensions</h2>
             </div>
-            <button class="chip-btn chip-btn-icon" type="button" data-action="close-canvas-dialog" aria-label="Close dialog" title="Close">✕</button>
+            <button class="chip-btn chip-btn-icon fern-dialog-close" type="button" data-action="close-canvas-dialog" aria-label="Close dialog" title="Close">✕</button>
           </div>
-          <div class="draw-dialog-body">
+          <div class="fern-dialog-body draw-dialog-body">
             <div class="draw-dialog-row">
               <label>Preset
                 <select class="select-pill" data-canvas-preset>
@@ -409,7 +412,7 @@
               </div>
             </div>
           </div>
-          <div class="draw-dialog-actions">
+          <div class="fern-dialog-footer draw-dialog-actions">
             <button class="chip-btn chip-btn-primary" type="button" data-action="apply-canvas-dimensions">Apply</button>
             <button class="chip-btn" type="button" data-action="fit-canvas-to-shapes">Fit to artwork</button>
             <button class="chip-btn" type="button" data-action="close-canvas-dialog">Cancel</button>
@@ -417,15 +420,15 @@
         </dialog>
 
         <!-- Trace Background Image Dialog -->
-        <dialog class="draw-modal-dialog draw-trace-dialog" data-trace-dialog aria-labelledby="draw-trace-dialog-title">
-          <div class="draw-dialog-header">
+        <dialog class="fern-dialog draw-modal-dialog draw-trace-dialog" data-trace-dialog aria-labelledby="draw-trace-dialog-title">
+          <div class="fern-dialog-header draw-dialog-header">
             <div>
               <p class="field-label">Reference Backdrop</p>
               <h2 id="draw-trace-dialog-title">Trace background image</h2>
             </div>
-            <button class="chip-btn chip-btn-icon" type="button" data-action="close-trace-dialog" aria-label="Close dialog" title="Close">✕</button>
+            <button class="chip-btn chip-btn-icon fern-dialog-close" type="button" data-action="close-trace-dialog" aria-label="Close dialog" title="Close">✕</button>
           </div>
-          <div class="draw-dialog-body">
+          <div class="fern-dialog-body draw-dialog-body">
             <div class="draw-dialog-row">
               <input type="file" accept="image/*" data-trace-file-input hidden>
               <button class="chip-btn chip-btn-primary" type="button" data-action="pick-trace-file">Choose image file…</button>
@@ -468,12 +471,12 @@
               <button class="chip-btn chip-btn-danger" type="button" data-action="remove-trace-image">Remove image</button>
             </div>
           </div>
-          <div class="draw-dialog-actions">
+          <div class="fern-dialog-footer draw-dialog-actions">
             <button class="chip-btn chip-btn-primary" type="button" data-action="close-trace-dialog">Done</button>
           </div>
         </dialog>
-        <dialog class="draw-color-dialog draw-text-dialog" data-text-dialog aria-labelledby="draw-text-title">
-          <div class="draw-color-dialog-header">
+        <dialog class="fern-dialog draw-color-dialog draw-text-dialog" data-text-dialog aria-labelledby="draw-text-title">
+          <div class="fern-dialog-header draw-color-dialog-header">
             <div>
               <p class="field-label">Typography</p>
               <h2 id="draw-text-title">Edit text</h2>

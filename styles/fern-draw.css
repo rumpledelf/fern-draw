@@ -803,7 +803,7 @@ input[type="range"] {
   border: 1px solid var(--fern-border-strong);
   border-radius: 12px;
   color: var(--fern-text);
-  background: var(--fern-surface);
+  background: var(--fern-panel);
 }
 
 .draw-color-dialog::backdrop {
@@ -827,7 +827,11 @@ input[type="range"] {
 
 .draw-color-dialog h2 {
   margin: 0;
-  font-size: 1.6rem;
+  font-family: "Cinzel", Georgia, serif;
+  font-size: 1.35rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--fern-accent-soft);
 }
 
 .draw-palette-slot {
@@ -943,7 +947,7 @@ input[type="range"] {
   border: 1px solid var(--fern-border-strong);
   border-radius: var(--fern-radius-card);
   color: var(--fern-text);
-  background: var(--fern-surface);
+  background: var(--fern-panel);
 }
 
 .draw-toolbar-color-dialog::backdrop {
@@ -960,7 +964,11 @@ input[type="range"] {
 
 .draw-toolbar-color-dialog h2 {
   margin: 0;
+  font-family: "Cinzel", Georgia, serif;
   font-size: 1.25rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--fern-accent-soft);
 }
 
 .draw-toolbar-color-controls {
@@ -1832,8 +1840,11 @@ input[type="range"] {
 
 .draw-dialog-header h2 {
   margin: 0.2rem 0 0;
+  font-family: "Cinzel", Georgia, serif;
   font-size: 1.25rem;
-  color: var(--fern-accent-pale);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--fern-accent-soft);
 }
 
 .draw-dialog-body {

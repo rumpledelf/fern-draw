@@ -1984,7 +1984,6 @@ function fern_applyToolbarPaletteChoice(index) {
 function fern_renderColorSetAccess() {
   const controls = fernEditor.querySelector("[data-color-set-account-controls]");
   const loginMessage = fernEditor.querySelector("[data-color-set-login-message]");
-  const saveAccount = fernEditor.querySelector("[data-color-set-save-account]");
   const accountLink = document.querySelector("[data-draw-account-link]");
   const accountActions = fernEditor.querySelectorAll("[data-account-action]");
   if (controls) {
@@ -1992,9 +1991,6 @@ function fern_renderColorSetAccess() {
   }
   if (loginMessage) {
     loginMessage.hidden = fernSessionAuthenticated;
-  }
-  if (saveAccount) {
-    saveAccount.hidden = !fernSessionAuthenticated;
   }
   if (accountLink) {
     accountLink.hidden = false;
@@ -2023,42 +2019,55 @@ async function fern_refreshSession() {
 
 async function fern_refreshSavedColorSets() {
   try {
-    const payload = await window.FernAccountSave.fetchJson("/account/color-sets/");
+    const [payload, session] = await Promise.all([
+      window.FernAccountSave.fetchJson("/account/color-sets/"),
+      window.FernAccountSave.current({ force: true }),
+    ]);
     const select = fernEditor.querySelector("[data-saved-color-set]");
     const loadedId = fernPaletteDraftColors ? fernPaletteDraftLoadedColorSetId : fernLoadedColorSetId;
-    if (select) {
-      select.innerHTML = '<option value="">Choose a saved color set</option>';
-      payload.color_sets.forEach((item) => {
-        const option = document.createElement("option");
-        option.value = item.id;
-        option.textContent = item.name;
-        option.selected = item.id === loadedId;
-        select.append(option);
-      });
-    }
+    window.FernAccountSave.populateColorSetSelect(select, payload.color_sets, session.projects, loadedId);
   } catch (error) {
     fern_setEditorStatus(error.message || "Could not load saved colors.");
   }
 }
 
-async function fern_saveColorSet() {
+async function fern_saveColorSet(saveAs = false) {
   const colors = fern_paletteEditorColors();
   const loadedId = fernPaletteDraftColors ? fernPaletteDraftLoadedColorSetId : fernLoadedColorSetId;
   const loadedName = fernPaletteDraftColors ? fernPaletteDraftLoadedColorSetName : fernLoadedColorSetName;
-  let name = loadedName;
-  if (!loadedId) {
-    name = window.prompt("Name this color set", fernCurrentFileName.replace(/\.svg$/i, "") || "Draw colors");
-    if (!name || !name.trim()) {
-      return;
-    }
+  if (!saveAs && !loadedId) {
+    return fern_saveColorSet(true);
   }
+  let name = loadedName;
+  let projectTarget = null;
   try {
-    const isUpdate = Boolean(loadedId);
+    if (saveAs) {
+      const currentProjectId = fernAccountProjectId || localStorage.getItem(FERN_ACCOUNT_PROJECT_KEY) || "";
+      projectTarget = await window.FernAccountSave.chooseProject(
+        localStorage.getItem(FERN_ACCOUNT_PROJECT_NAME_KEY) || fernCurrentFileName.replace(/\.svg$/i, "") || "Draw colors",
+        currentProjectId,
+        {
+          title: "Save color set as",
+          itemNameLabel: "Color set name",
+          itemName: `${fernCurrentFileName.replace(/\.svg$/i, "") || "draw"}-colors`,
+          allowNoProject: true,
+        }
+      );
+      if (!projectTarget) return;
+      name = projectTarget.item_name;
+    }
+    const isUpdate = Boolean(loadedId) && !saveAs;
     const url = isUpdate ? `/account/color-sets/${loadedId}/` : "/account/color-sets/";
     const payload = await window.FernAccountSave.fetchJson(url, {
       method: isUpdate ? "PUT" : "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: name.trim(), colors, originating_tool_id: "draw" }),
+      body: JSON.stringify({
+        name: name.trim(),
+        colors,
+        originating_tool_id: "draw",
+        project_id: projectTarget?.project_id || "",
+        project_name: projectTarget && !projectTarget.project_id ? projectTarget.name : "",
+      }),
     });
     if (fernPaletteDraftColors) {
       fernPaletteDraftLoadedColorSetId = payload.id;
@@ -6698,6 +6707,9 @@ async function fern_setupEditor() {
     } else if (actionButton && actionButton.dataset.action === "save-color-set") {
       fern_closeAllMenus();
       fern_saveColorSet();
+    } else if (actionButton && actionButton.dataset.action === "save-color-set-as") {
+      fern_closeAllMenus();
+      fern_saveColorSet(true);
     } else if (actionButton && actionButton.dataset.action === "show-shortcuts") {
       fern_closeAllMenus();
       fern_setEditorStatus("Shortcuts: H: Hand, V: Marquee, A: Shape / Nodes, G: Group, P: Draw · Space pans · Ctrl/Cmd+Z undo · Ctrl/Cmd+X/C/V/D.");

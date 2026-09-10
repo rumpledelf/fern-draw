@@ -930,14 +930,17 @@ input[type="range"] {
 }
 
 .draw-color-load {
-  min-width: min(260px, 100%);
-  margin-right: auto;
+  min-width: 0;
 }
 
 .draw-color-dialog-rule {
   margin: 1rem 0;
   border: 0;
   border-top: 1px solid var(--fern-border);
+}
+
+.fern-color-account-controls > .draw-color-dialog-rule {
+  margin: 0;
 }
 
 .draw-color-login-message {

@@ -6,10 +6,10 @@
     <title>Phrond Draw - free SVG editor</title>
     <link rel="stylesheet" href="styles/palette.css">
     <link rel="stylesheet" href="styles/fern-draw.css">
-    <link rel="stylesheet" href="/styles/fern-shared-dialogs.css">
-    <link rel="stylesheet" href="/styles/fern-shared-color-controls.css?v=2">
+    <link rel="stylesheet" href="/styles/fern-shared-dialogs.css?v=2">
+    <link rel="stylesheet" href="/styles/fern-shared-color-controls.css?v=3">
     <script src="/scripts/gtm.js" defer></script>
-    <script src="/scripts/account-save.js" defer></script>
+    <script src="/scripts/account-save.js?v=3" defer></script>
   </head>
   <body>
     <div class="page-shell">
@@ -319,15 +319,19 @@
             <section>
               <p class="subgroup-title" data-palette-heading>12 colors</p>
               <div class="fern-color-grid" data-palette-slots></div>
-              <div data-color-set-account-controls hidden>
+              <div class="fern-color-account-controls" data-color-set-account-controls hidden>
                 <hr class="draw-color-dialog-rule">
-                <div class="draw-color-dialog-actions" data-color-dialog-actions>
+                <div class="fern-color-account-stack" data-color-dialog-actions>
                   <label class="draw-color-load">Load saved color set
                     <select class="select-pill" data-saved-color-set>
                       <option value="">Choose a saved color set</option>
                     </select>
                   </label>
-                  <button class="chip-btn" type="button" data-action="load-color-set"><span class="material-icons" aria-hidden="true">upload</span>Load</button>
+                  <div class="fern-color-account-actions">
+                    <button class="chip-btn" type="button" data-action="load-color-set"><span class="material-icons" aria-hidden="true">upload</span>Load</button>
+                    <button class="chip-btn" type="button" data-action="save-color-set"><span class="material-icons" aria-hidden="true">save</span>Save</button>
+                    <button class="chip-btn" type="button" data-action="save-color-set-as"><span class="material-icons" aria-hidden="true">save_as</span>Save as…</button>
+                  </div>
                 </div>
               </div>
               <p class="draw-color-login-message" data-color-set-login-message hidden>Log into your account to manage color sets</p>
@@ -352,7 +356,6 @@
           <div class="fern-dialog-footer draw-color-dialog-actions draw-color-dialog-footer">
             <button class="chip-btn chip-btn-primary" type="button" data-action="color-dialog-ok"><span class="material-icons" aria-hidden="true">check</span>OK</button>
             <button class="chip-btn" type="button" data-action="color-dialog-cancel"><span class="material-icons" aria-hidden="true">close</span>Cancel</button>
-            <button class="chip-btn" type="button" data-action="save-color-set" data-color-set-save-account hidden><span class="material-icons" aria-hidden="true">save</span>Save to account</button>
           </div>
         </dialog>
 
@@ -544,6 +547,6 @@
     </div>
     <script src="static/inspire-return.js" defer></script>
     <script src="static/fern-font-picker.js" defer></script>
-    <script src="static/fern-draw.js?v=2" defer></script>
+    <script src="static/fern-draw.js?v=3" defer></script>
   </body>
 </html>

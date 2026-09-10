@@ -1421,7 +1421,6 @@ input[type="range"] {
 
 .icon-editor-svg .is-svg-selected {
   outline: none;
-  filter: none;
 }
 
 .svg-point-handle {

@@ -1639,6 +1639,62 @@ function fern_ensureDefs() {
   return defs;
 }
 
+function fern_getFilterReference(element) {
+  const match = (element?.getAttribute("filter") || "").match(/^url\(\s*["']?#([^"')]+)["']?\s*\)$/);
+  return match ? match[1] : "";
+}
+
+function fern_findFilter(filterId) {
+  if (!filterId || !fernActiveSvg) return null;
+  return [...fernActiveSvg.querySelectorAll("filter")].find(filter => filter.id === filterId) || null;
+}
+
+function fern_getBlurAmount(element) {
+  const filter = fern_findFilter(fern_getFilterReference(element));
+  const blur = filter?.querySelector("feGaussianBlur");
+  const amount = Number.parseFloat((blur?.getAttribute("stdDeviation") || "").split(/[ ,]+/)[0]);
+  return Number.isFinite(amount) ? amount : 0;
+}
+
+function fern_removeUnusedBlurFilter(filter) {
+  if (!filter?.hasAttribute("data-fern-blur-filter") || !fernActiveSvg) return;
+  const reference = `url(#${filter.id})`;
+  const inUse = [...fernActiveSvg.querySelectorAll("[filter]")]
+    .some(element => element.getAttribute("filter") === reference);
+  if (!inUse) filter.remove();
+}
+
+function fern_setBlurAmount(element, amount) {
+  if (!element || !fernActiveSvg) return;
+  const previousFilter = fern_findFilter(fern_getFilterReference(element));
+  element.removeAttribute("filter");
+  fern_removeUnusedBlurFilter(previousFilter);
+
+  const blurAmount = Math.max(0, Math.min(100, Number.parseFloat(amount) || 0));
+  if (blurAmount === 0) return;
+
+  const filter = document.createElementNS(FERN_SVG_NS, "filter");
+  const filterIdBase = `fern_blur_${Date.now().toString(36)}_${Math.floor(Math.random() * 1000)}`;
+  let filterId = filterIdBase;
+  let filterIdSuffix = 2;
+  while (fern_findFilter(filterId)) {
+    filterId = `${filterIdBase}_${filterIdSuffix}`;
+    filterIdSuffix += 1;
+  }
+  filter.setAttribute("id", filterId);
+  filter.setAttribute("data-fern-blur-filter", "");
+  filter.setAttribute("x", "-50%");
+  filter.setAttribute("y", "-50%");
+  filter.setAttribute("width", "200%");
+  filter.setAttribute("height", "200%");
+
+  const blur = document.createElementNS(FERN_SVG_NS, "feGaussianBlur");
+  blur.setAttribute("stdDeviation", fern_formatNumber(blurAmount));
+  filter.appendChild(blur);
+  fern_ensureDefs().appendChild(filter);
+  element.setAttribute("filter", `url(#${filter.id})`);
+}
+
 function fern_setLinearGradient(element, stop1, stop2, angle = 90) {
   if (!element || !fernActiveSvg) return;
   const defs = fern_ensureDefs();
@@ -2280,6 +2336,7 @@ function fern_renderInspector() {
     const linecap = fern_getPresentationAttr(first, "stroke-linecap", "butt");
     const linejoin = fern_getPresentationAttr(first, "stroke-linejoin", "miter");
     const dasharray = fern_getPresentationAttr(first, "stroke-dasharray");
+    const blurAmount = fern_getBlurAmount(first);
 
     inspector.innerHTML = `
       <div class="svg-editor-selected">
@@ -2408,6 +2465,15 @@ function fern_renderInspector() {
           <input class="select-pill" type="text" data-attr="stroke-dasharray" value="${dasharray}" placeholder="e.g. 4 4">
         </label>
       </div>
+
+      <div class="field-label" style="margin-top: 0.8rem;">Effects</div>
+      <div class="opacity-slider-row">
+        <label>
+          <span>Blur</span>
+          <input type="range" min="0" max="100" step="0.5" data-attr-blur value="${blurAmount}">
+          <span class="opacity-value-readout" data-blur-readout>${blurAmount}</span>
+        </label>
+      </div>
     `;
     return;
   }
@@ -2461,6 +2527,7 @@ function fern_renderInspector() {
   const linecap = fern_getPresentationAttr(fernSelectedElement, "stroke-linecap", "butt");
   const linejoin = fern_getPresentationAttr(fernSelectedElement, "stroke-linejoin", "miter");
   const dasharray = fern_getPresentationAttr(fernSelectedElement, "stroke-dasharray");
+  const blurAmount = fern_getBlurAmount(fernSelectedElement);
 
   let geomFields = "";
   if (tag === "rect") {
@@ -2632,6 +2699,13 @@ function fern_renderInspector() {
       </label>
     </div>
 
+    <div class="field-label" style="margin-top: 0.8rem;">Effects</div>
+    <div class="opacity-slider-wrapper">
+      <span class="slider-label">Blur</span>
+      <input type="range" min="0" max="100" step="0.5" data-attr-blur value="${blurAmount}">
+      <span class="slider-value" data-blur-readout>${blurAmount}</span>
+    </div>
+
     ${geomFields ? `<div class="field-label" style="margin-top: 0.8rem;">Geometry</div><div class="inspector-grid">${geomFields}</div>` : ''}
   `;
 }
@@ -2719,6 +2793,7 @@ function fern_updateColorAttr(event) {
   const gradientInput = event.target.closest("[data-attr-gradient]");
   const gradientAngleInput = event.target.closest("[data-gradient-angle]");
   const opacityInput = event.target.closest("[data-attr-opacity]");
+  const blurInput = event.target.closest("[data-attr-blur]");
 
   const targets = fern_getSelectedElements();
   if (targets.length === 0) {
@@ -2740,6 +2815,18 @@ function fern_updateColorAttr(event) {
       fern_commitHistory();
       fern_autoSaveLocal();
     }
+    return;
+  }
+
+  if (blurInput) {
+    const amount = Math.max(0, Math.min(100, Number.parseFloat(blurInput.value) || 0));
+    fern_beginHistory();
+    for (const el of targets) {
+      fern_setBlurAmount(el, amount);
+    }
+    const readout = fernEditor.querySelector("[data-blur-readout]");
+    if (readout) readout.textContent = fern_formatNumber(amount);
+    fern_commitHistory();
     return;
   }
 

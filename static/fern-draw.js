@@ -515,7 +515,7 @@ function fern_activateDrawPathMode() {
   if (fernActiveSvg) {
     fernActiveSvg.classList.add("is-drawing-path");
   }
-  fern_setEditorStatus("Draw path: click canvas to add vertices, double-click or Enter to close path, Esc to cancel.");
+  fern_setEditorStatus("Draw path: click canvas to add vertices, double-click or Enter to close path, Esc to finish open.");
 }
 
 function fern_updateDrawingPath(currentPointer = null) {
@@ -3525,6 +3525,57 @@ function fern_selectAnchorOrdinals(ordinals) {
   fernSelectedNodeIndices = new Set(ordinals.map((ordinal) => refs.indexOf(anchors[ordinal])).filter((index) => index >= 0));
 }
 
+function fern_pathWithClosure(d, closed) {
+  const tokens = fern_pathTokens(fern_absolutizePath(d));
+  const result = [];
+  let open = false;
+  for (const token of tokens) {
+    const command = token.type === "command" ? token.value.toUpperCase() : "";
+    if (command === "M") {
+      if (closed && open) result.push(...fern_pathCommand("Z"));
+      open = true;
+    }
+    if (command === "Z") {
+      if (closed) result.push(token);
+      open = false;
+    } else {
+      result.push(token);
+    }
+  }
+  if (closed && open) result.push(...fern_pathCommand("Z"));
+  return fern_serializePathTokens(result);
+}
+
+function fern_setSelectedPathsClosed(closed) {
+  const paths = fern_getSelectedElements().filter((element) => fern_getTagName(element) === "path");
+  if (!paths.length) {
+    fern_setEditorStatus("Select a path first.");
+    return;
+  }
+  fern_beginHistory();
+  for (const path of paths) {
+    const refs = fern_getPointRefs(path);
+    const anchors = refs.filter((ref) => ref.role !== "control");
+    const overrides = fern_getNodeModeOverrides(path);
+    const modes = anchors.map((ref) => overrides[fern_nodeModeKey(ref)]);
+    const selected = anchors.map((ref) => fernSelectedNodeIndices.has(refs.indexOf(ref)));
+    path.setAttribute("d", fern_pathWithClosure(path.getAttribute("d") || "", closed));
+    path.removeAttribute("data-node-modes");
+    const updatedRefs = fern_getPointRefs(path);
+    const updated = updatedRefs.filter((ref) => ref.role !== "control");
+    updated.forEach((ref, index) => {
+      if (modes[index]) fern_setNodeModeOverride(path, ref, modes[index]);
+    });
+    if (path === fernSelectedElement) {
+      fernSelectedNodeIndices = new Set(updated.filter((ref, index) => selected[index] && fern_refHasPosition(ref)).map((ref) => updatedRefs.indexOf(ref)));
+      fernSelectedPointIndex = [...fernSelectedNodeIndices][0] ?? null;
+    }
+  }
+  fern_renderPointHandles();
+  fern_commitHistory();
+  fern_setEditorStatus(closed ? "Path closed." : "Path opened. SVG fills can still span the opening.");
+}
+
 function fern_setSelectedSegmentMode(mode) {
   if (!fernSelectedElement || fern_getTagName(fernSelectedElement) !== "path") {
     return;
@@ -4736,6 +4787,7 @@ function fern_handlePointerDown(event) {
 
   if (fernDrawPathMode) {
     event.preventDefault();
+    if (event.detail > 1) return;
     if (!fernDrawingPathElement) {
       fern_beginHistory();
       fernDrawingPathElement = document.createElementNS(FERN_SVG_NS, "path");
@@ -5191,6 +5243,12 @@ function fern_handlePointerUp(event) {
 
 function fern_handleDoubleClick(event) {
   if (!fernActiveSvg) return;
+  if (fernDrawPathMode) {
+    event.preventDefault();
+    event.stopPropagation();
+    fern_finishDrawPath(true);
+    return;
+  }
   const text = event.target.closest("text");
   if (text) {
     event.preventDefault();
@@ -6208,14 +6266,6 @@ async function fern_setupEditor() {
     }
   });
 
-  fernEditor.addEventListener("dblclick", (event) => {
-    if (fernDrawPathMode) {
-      event.preventDefault();
-      event.stopPropagation();
-      fern_finishDrawPath(true);
-    }
-  });
-
   document.addEventListener("change", (event) => {
     const radio = event.target.closest('[data-canvas-bg]');
     if (radio) {
@@ -6351,6 +6401,12 @@ async function fern_setupEditor() {
     if (event.code === "Space" && fernEditor.contains(target)) {
       fernSpacePressed = true;
       event.preventDefault();
+      return;
+    }
+
+    if (event.key === "Enter" && fernDrawPathMode) {
+      event.preventDefault();
+      fern_finishDrawPath(true);
       return;
     }
 
@@ -6600,6 +6656,8 @@ async function fern_setupEditor() {
       fern_beginHistory();
       fern_setSelectedSegmentMode("curve");
       fern_commitHistory();
+    } else if (nodeActionButton && ["close", "open"].includes(nodeActionButton.dataset.nodeAction)) {
+      fern_setSelectedPathsClosed(nodeActionButton.dataset.nodeAction === "close");
     } else if (nodeActionButton && nodeActionButton.dataset.nodeAction === "add") {
       fern_activateAddNodeMode();
     } else if (nodeActionButton && nodeActionButton.dataset.nodeAction === "merge") {

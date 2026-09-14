@@ -86,3 +86,75 @@ test('saving retains explicit node types for reopening', () => {
   assert.deepEqual(Array.from(reopened.anchors(), a => a.pointMode), Array.from(anchors(), a => a.pointMode));
   assert.ok(saved.modes);
 });
+
+for (const side of [0, 1]) {
+  for (const mode of ['smooth', 'corner']) {
+    for (const shiftKey of [false, true]) {
+      test(`${mode} handle ${side} drag ${shiftKey ? 'with Shift mirrors' : 'keeps opposite length'}`, () => {
+        const { ctx, path, anchors } = setup('M 0 0 C 10 0 20 20 30 20 C 55 20 70 40 80 40');
+        ctx.fern_selectAnchorOrdinals([1]);
+        ctx.fern_setNodeMode(mode);
+        const anchor = anchors()[1];
+        const control = anchor.controls[side];
+        const paired = anchor.controls[1 - side];
+        const oldLength = Math.hypot(paired.x - anchor.x, paired.y - anchor.y);
+        const refs = ctx.fern_getPointRefs(path);
+        const handleIndex = refs.findIndex(r => r.role === 'control' && r.x === control.x && r.y === control.y);
+        const handle = { dataset: { pointIndex: String(handleIndex), elementIndex: '0' } };
+        Object.assign(ctx, {
+          fernActiveSvg: { setPointerCapture() {} }, fernEditorMode: 'select-node',
+          fernEditor: { querySelector: () => null }, fern_getSelectedElements: () => [path],
+          fern_getCanvasPoint: e => ({ x: e.x, y: e.y }), fern_getElementPoint: e => ({ x: e.x, y: e.y }),
+          fern_setCoordinateReadout() {}, fern_beginHistory() {},
+          fernSpacePressed: false, fernDrawPathMode: false, fernPanState: null,
+          fernMarqueeState: null, fernResizeState: null, fernPointDragState: null,
+        });
+        vm.runInContext(['fern_handlePointerDown', 'fern_handlePointerMove', 'fern_applyPointRef', 'fern_setPathPair'].map(extract).join('\n'), ctx);
+        ctx.fern_handlePointerDown({ button: 0, shiftKey, pointerId: 1,
+          x: control.x, y: control.y, stopPropagation() {}, preventDefault() {},
+          target: { closest: selector => selector === '[data-point-index]' ? handle : null } });
+        for (const [dx, dy] of [[12, 16], [0, 0], [-18, 24]]) {
+          ctx.fern_handlePointerMove({ x: anchor.x + dx, y: anchor.y + dy });
+          const updated = anchors()[1];
+          const moved = updated.controls[side];
+          const opposite = updated.controls[1 - side];
+          assert.ok(Math.abs(moved.x - anchor.x - dx) < 0.001);
+          assert.ok(Math.abs(moved.y - anchor.y - dy) < 0.001);
+          const length = Math.hypot(opposite.x - anchor.x, opposite.y - anchor.y);
+          assert.ok(Math.abs(length - (shiftKey ? Math.hypot(dx, dy) : oldLength)) < 0.001);
+          if (mode === 'smooth' || shiftKey) {
+            assert.ok(Math.abs(dx * (opposite.y - anchor.y) - dy * (opposite.x - anchor.x)) < 0.01);
+            assert.ok(dx * (opposite.x - anchor.x) + dy * (opposite.y - anchor.y) <= 0);
+          } else {
+            assert.equal(opposite.x, paired.x);
+            assert.equal(opposite.y, paired.y);
+          }
+          assert.equal(updated.pointMode, mode);
+        }
+      });
+    }
+  }
+}
+
+test('smooth nodes render both editable handles and both guide lines', () => {
+  const { ctx, path, anchors } = setup('M 0 0 C 10 0 20 20 30 20 C 55 20 70 40 80 40');
+  ctx.fern_selectAnchorOrdinals([1]);
+  ctx.fern_setNodeMode('smooth');
+  const makeElement = tagName => ({ tagName, attrs: {}, children: [],
+    setAttribute(k, v) { this.attrs[k] = v; }, append(child) { this.children.push(child); } });
+  const svg = makeElement('svg');
+  Object.assign(ctx, { fernActiveSvg: svg, FERN_SVG_NS: 'svg',
+    fern_clearHandles() {}, fern_getSelectedElements: () => [path],
+    fern_screenPixelsToElementUnits: (_, pixels) => pixels,
+    fern_selectedSegmentPath: () => null, fern_elementPointToCanvas: (_, x, y) => ({x, y}),
+    document: { createElementNS: (_, tagName) => makeElement(tagName) },
+  });
+  vm.runInContext(extract('fern_renderPointHandles'), ctx);
+  ctx.fern_renderPointHandles();
+  const rendered = svg.children[0].children;
+  for (const control of anchors()[1].controls) {
+    assert.ok(rendered.some(el => el.tagName === 'circle' && Number(el.attrs.cx) === control.x &&
+      Number(el.attrs.cy) === control.y && el.attrs['data-point-index'] !== undefined));
+    assert.ok(rendered.some(el => el.tagName === 'line' && Number(el.attrs.x1) === control.x && Number(el.attrs.y1) === control.y));
+  }
+});

@@ -3275,11 +3275,6 @@ function fern_getPathPointRefs(element) {
         ? "smooth"
         : "corner"
     );
-    if (ref.pointMode === "smooth" && ref.controls && ref.controls.length >= 2) {
-      const [hidden, visible] = ref.controls;
-      hidden.hiddenControl = true;
-      visible.mirrorControl = hidden;
-    }
   }
 
   return refs;
@@ -4836,7 +4831,8 @@ function fern_handlePointerDown(event) {
       ref,
       refs,
       constrainEllipse: event.shiftKey && isEllipseRadius,
-      mirrorControls: (event.shiftKey || Boolean(ref.mirrorControl)) && ref.role === "control",
+      mirrorControls: event.shiftKey && ref.role === "control",
+      alignControls: ref.role === "control" && ref.connectTo?.pointMode === "smooth",
       startPointerX: pointInElem.x,
       startPointerY: pointInElem.y,
       startX: ref.x,
@@ -5047,16 +5043,26 @@ function fern_handlePointerMove(event) {
     } else {
       fern_applyPointRef(dragElem, fernPointDragState.ref, x, y);
     }
-    if (fernPointDragState.mirrorControls && fernPointDragState.ref.connectTo) {
+    if ((fernPointDragState.alignControls || fernPointDragState.mirrorControls) && fernPointDragState.ref.connectTo) {
       const anchor = fernPointDragState.ref.connectTo;
-      const paired = fernPointDragState.ref.mirrorControl || fernPointDragState.refs.find((candidate) => (
+      const paired = fernPointDragState.refs.find((candidate) => (
         candidate !== fernPointDragState.ref &&
         candidate.role === "control" &&
         candidate.connectTo === anchor
       ));
       if (paired) {
-        fern_setAbsolutePathPair(paired, fern_snap(anchor.x * 2 - x), fern_snap(anchor.y * 2 - y));
-        dragElem.setAttribute("d", fern_serializePathTokens(paired.tokens));
+        const dx = x - anchor.x;
+        const dy = y - anchor.y;
+        const draggedLength = Math.hypot(dx, dy);
+        // Smooth handles share a tangent, but keep independent lengths.
+        // Shift retains the explicit equal-length mirroring gesture.
+        const pairedLength = fernPointDragState.mirrorControls
+          ? draggedLength : Math.hypot(paired.x - anchor.x, paired.y - anchor.y);
+        if (draggedLength > 0 || fernPointDragState.mirrorControls) {
+          const ratio = draggedLength > 0 ? pairedLength / draggedLength : 0;
+          fern_setAbsolutePathPair(paired, anchor.x - dx * ratio, anchor.y - dy * ratio);
+          dragElem.setAttribute("d", fern_serializePathTokens(paired.tokens));
+        }
       }
     }
     fern_setCoordinateReadout(x, y);

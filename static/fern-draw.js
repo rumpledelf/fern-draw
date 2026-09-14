@@ -3594,7 +3594,12 @@ function fern_setSelectedSegmentMode(mode) {
   const tokens = fern_pathTokens(fernSelectedElement.getAttribute("d") || "");
   tokens.splice(segmentStart, segmentEnd - segmentStart, ...replacement);
   fernSelectedElement.setAttribute("d", fern_serializePathTokens(tokens));
+  const overrides = fern_getNodeModeOverrides(fernSelectedElement);
+  const nodeModes = anchors.map((ref) => overrides[fern_nodeModeKey(ref)]);
   fernSelectedElement.removeAttribute("data-node-modes");
+  fern_getPointRefs(fernSelectedElement).filter(fern_refHasPosition).forEach((ref, ordinal) => {
+    if (nodeModes[ordinal]) fern_setNodeModeOverride(fernSelectedElement, ref, nodeModes[ordinal]);
+  });
   fernSelectedPointIndex = null;
   fern_selectAnchorOrdinals([firstOrdinal, secondOrdinal]);
   fern_setEditorStatus(mode === "straight" ? "Segment made straight." : "Segment made curved. Drag its orange handles.");
@@ -3805,45 +3810,33 @@ function fern_deleteSelectedNodes() {
 function fern_convertAdjacentSegmentsToCurves(element, anchor) {
   const refs = fern_getPointRefs(element);
   const anchors = refs.filter(fern_refHasPosition);
-  const index = anchors.indexOf(anchor);
-  if (index < 0) {
-    return;
-  }
-
-  const adjacentIndices = [];
-  if (index > 0) adjacentIndices.push(index - 1);
-  else if (anchor.closingTo) adjacentIndices.push(anchors.length - 1);
-  if (index < anchors.length - 1) adjacentIndices.push(index + 1);
-  else if (anchors[0] && anchors[0].incomingSegment === "Z") adjacentIndices.push(0);
+  const index = anchors.findIndex((ref) => fern_nodeModeKey(ref) === fern_nodeModeKey(anchor));
+  if (index < 0) return;
 
   const tokens = fern_pathTokens(element.getAttribute("d") || "");
-  let modified = false;
-
-  for (const adjIndex of adjacentIndices) {
-    const start = index < adjIndex ? anchor : anchors[adjIndex];
-    const end = index < adjIndex ? anchors[adjIndex] : anchor;
-    if (end && Number.isInteger(end.segmentStart) && Number.isInteger(end.segmentEnd)) {
-      const segTokens = end.tokens.slice(end.segmentStart, end.segmentEnd);
-      const cmd = segTokens[0] && segTokens[0].type === "command" ? segTokens[0].value.toUpperCase() : "";
-      if (cmd === "L" || cmd === "Z" || cmd === "H" || cmd === "V") {
-        const replacement = fern_pathCommand(
-          "C",
-          fern_snap(start.x + (end.x - start.x) / 3),
-          fern_snap(start.y + (end.y - start.y) / 3),
-          fern_snap(start.x + ((end.x - start.x) * 2) / 3),
-          fern_snap(start.y + ((end.y - start.y) * 2) / 3),
-          end.x,
-          end.y
-        );
-        tokens.splice(end.segmentStart, end.segmentEnd - end.segmentStart, ...replacement);
-        modified = true;
-      }
+  const replacements = [];
+  function addCurve(start, end, from, count) {
+    replacements.push({ from, count, tokens: fern_pathCommand("C",
+      start.x + (end.x - start.x) / 3, start.y + (end.y - start.y) / 3,
+      start.x + (end.x - start.x) * 2 / 3, start.y + (end.y - start.y) * 2 / 3,
+      end.x, end.y) });
+  }
+  for (let i = 1; i < anchors.length; i += 1) {
+    const start = anchors[i - 1];
+    const end = anchors[i];
+    if ((i === index || i - 1 === index) && ["L", "H", "V"].includes(end.incomingSegment)) {
+      addCurve(start, end, end.segmentStart, end.segmentEnd - end.segmentStart);
     }
   }
-
-  if (modified) {
-    element.setAttribute("d", fern_serializePathTokens(tokens));
+  for (const start of anchors) {
+    if (start.closingTo && (start === anchors[index] || start.closingTo === anchors[index])) {
+      addCurve(start, start.closingTo, start.closingTokenIndex, 0);
+    }
   }
+  for (const replacement of replacements.sort((a, b) => b.from - a.from)) {
+    tokens.splice(replacement.from, replacement.count, ...replacement.tokens);
+  }
+  if (replacements.length) element.setAttribute("d", fern_serializePathTokens(tokens));
 }
 
 function fern_setNodeMode(mode) {
@@ -3853,13 +3846,23 @@ function fern_setNodeMode(mode) {
     return;
   }
 
-  for (const anchor of selectedRefs) {
-    if (mode === "smooth") {
+  const originalAnchors = fern_getPointRefs(fernSelectedElement).filter(fern_refHasPosition);
+  const selectedKeys = new Set(selectedRefs.map(fern_nodeModeKey));
+  const ordinals = originalAnchors.map((ref, index) => selectedKeys.has(fern_nodeModeKey(ref)) ? index : -1).filter((index) => index >= 0);
+  const modes = originalAnchors.map((ref) => ref.pointMode);
+  if (mode === "smooth") {
+    fernSelectedElement.setAttribute("d", fern_absolutizePath(fernSelectedElement.getAttribute("d") || ""));
+    for (const ordinal of ordinals) {
+      const anchor = fern_getPointRefs(fernSelectedElement).filter(fern_refHasPosition)[ordinal];
       fern_convertAdjacentSegmentsToCurves(fernSelectedElement, anchor);
     }
-    fern_setNodeModeOverride(fernSelectedElement, anchor, mode);
-    const updatedRefs = fern_getPointRefs(fernSelectedElement);
-    const updatedAnchor = updatedRefs.find((r) => r.x === anchor.x && r.y === anchor.y) || anchor;
+  }
+  fernSelectedElement.removeAttribute("data-node-modes");
+  fern_getPointRefs(fernSelectedElement).filter(fern_refHasPosition).forEach((ref, index) => {
+    fern_setNodeModeOverride(fernSelectedElement, ref, ordinals.includes(index) ? mode : modes[index]);
+  });
+  for (const ordinal of ordinals) {
+    const updatedAnchor = fern_getPointRefs(fernSelectedElement).filter(fern_refHasPosition)[ordinal];
     const [first, second] = updatedAnchor.controls || [];
     if (mode === "smooth" && first && second) {
       const length = Math.hypot(first.x - updatedAnchor.x, first.y - updatedAnchor.y) || Math.hypot(second.x - updatedAnchor.x, second.y - updatedAnchor.y) || 8;
@@ -3869,7 +3872,9 @@ function fern_setNodeMode(mode) {
     }
   }
 
-  fern_setEditorStatus(mode === "corner" ? "Node made corner." : "Node made smooth.");
+  fern_selectAnchorOrdinals(ordinals);
+  fernSelectedPointIndex = [...fernSelectedNodeIndices][0] ?? null;
+  fern_setEditorStatus(`${ordinals.length} ${ordinals.length === 1 ? "node" : "nodes"} made ${mode}.`);
   fern_renderPointHandles();
 }
 
@@ -5524,9 +5529,7 @@ function fern_cleanForSave() {
   for (const group of clone.querySelectorAll("[data-editor-backdrop]")) {
     group.remove();
   }
-  for (const element of clone.querySelectorAll("[data-node-modes]")) {
-    element.removeAttribute("data-node-modes");
-  }
+  // Preserve explicit node types so saved drawings reopen with the same editing behavior.
   if (!clone.getAttribute("xmlns")) {
     clone.setAttribute("xmlns", FERN_SVG_NS);
   }

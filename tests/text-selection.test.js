@@ -13,27 +13,34 @@ function element(tagName) {
 }
 test('text selection uses the same four square anchor handles as rectangles', () => {
   for (const tag of ['text', 'rect']) {
-    const shape = element(tag);
-    shape.getBBox = () => ({x: 0, y: 0, width: 100, height: 20});
-    const svg = element('svg');
-    const ctx = vm.createContext({
-      fernActiveSvg: svg, fernEditorMode: 'select-node', fernSelectedElement: shape,
-      fern_getSelectedElements: () => [shape], fern_clearHandles: () => {},
-      fern_getTagName: el => el.tagName, fern_numericAttr: (_, attr) => ({x: 0, y: 0, width: 100, height: 20})[attr],
-      fern_formatNumber: String, FERN_SVG_NS: 'svg', fernZoomLevel: 1,
-      fernSelectedPointIndex: null, fernSelectedNodeIndices: new Set(),
-      fern_selectedSegmentPath: () => null,
-      fern_elementPointToCanvas: (_, x, y) => ({x, y}),
-      document: { createElementNS: (_, name) => element(name) },
-    });
-    vm.runInContext(extract('fern_getPointRefs') + '\n' + extract('fern_renderPointHandles'), ctx);
-    vm.runInContext('fern_renderPointHandles()', ctx);
-    assert.equal(svg.children.length, 1);
-    assert.equal(svg.children[0].children.length, 4);
-    for (const handle of svg.children[0].children) {
-      assert.equal(handle.tagName, 'rect');
-      assert.equal(handle.attrs.class, 'svg-point-handle svg-point-anchor');
-      assert.equal(handle.attrs.width, '8');
+    for (const fitScale of [0.5, 1, 8, 24]) {
+      for (const zoom of [0.25, 1, 3, 6]) {
+        const scale = fitScale * zoom;
+        const shape = element(tag);
+        shape.getBBox = () => ({x: 0, y: 0, width: 100, height: 20});
+        const svg = element('svg');
+        svg.getScreenCTM = () => ({ a: scale, b: 0, c: 0, d: scale });
+        const ctx = vm.createContext({
+          fernActiveSvg: svg, fernEditorMode: 'select-node', fernSelectedElement: shape,
+          fern_getSelectedElements: () => [shape], fern_clearHandles: () => {},
+          fern_getTagName: el => el.tagName, fern_numericAttr: (_, attr) => ({x: 0, y: 0, width: 100, height: 20})[attr],
+          fern_formatNumber: String, FERN_SVG_NS: 'svg', fernZoomLevel: zoom,
+          fernSelectedPointIndex: null, fernSelectedNodeIndices: new Set(),
+          fern_selectedSegmentPath: () => null,
+          fern_elementPointToCanvas: (_, x, y) => ({x, y}),
+          document: { createElementNS: (_, name) => element(name) },
+        });
+        vm.runInContext(extract('fern_screenPixelsToElementUnits') + '\n' + extract('fern_getPointRefs') + '\n' + extract('fern_renderPointHandles'), ctx);
+        vm.runInContext('fern_renderPointHandles()', ctx);
+        assert.equal(svg.children.length, 1);
+        assert.equal(svg.children[0].children.length, 4);
+        for (const handle of svg.children[0].children) {
+          assert.equal(handle.tagName, 'rect');
+          assert.equal(handle.attrs.class, 'svg-point-handle svg-point-anchor');
+          assert.ok(Math.abs(Number(handle.attrs.width) * scale - 8) < 0.001);
+          assert.ok(Math.abs(Number(handle.attrs.height) * scale - 8) < 0.001);
+        }
+      }
     }
   }
 });

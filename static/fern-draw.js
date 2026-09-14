@@ -1473,8 +1473,8 @@ function fern_renderSelectionBox(elements = fern_getSelectedElements()) {
   rect.setAttribute("class", "svg-bounding-box");
   group.append(rect);
 
-  const handleSize = 8 / Math.max(0.25, fernZoomLevel || 1);
-  const hitSize = 18 / Math.max(0.25, fernZoomLevel || 1);
+  const handleSize = fern_screenPixelsToElementUnits(fernActiveSvg, 8);
+  const hitSize = fern_screenPixelsToElementUnits(fernActiveSvg, 18);
   const half = handleSize / 2;
 
   const handlePositions = [
@@ -3406,7 +3406,7 @@ function fern_renderPointHandles() {
   const group = document.createElementNS(FERN_SVG_NS, "g");
   group.setAttribute("data-editor-handles", "");
 
-  const handleSize = 8 / Math.max(0.25, fernZoomLevel || 1);
+  const handleSize = fern_screenPixelsToElementUnits(fernActiveSvg, 8);
   const radius = handleSize / 2;
 
   elements.forEach((element, elemIdx) => {
@@ -4359,8 +4359,8 @@ function fern_updateCanvasStageSize() {
   canvas.style.width = `${finalW}px`;
   canvas.style.height = `${finalH}px`;
 
-  if (fernEditorMode === "select-node" && fernSelectedElement) {
-    requestAnimationFrame(fern_renderPointHandles);
+  if (fernSelectedElement) {
+    requestAnimationFrame(() => fern_renderSelectionBox());
   }
 }
 

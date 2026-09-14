@@ -48,5 +48,16 @@ Press the arrow keys to nudge selected shapes or nodes by one screen pixel. Hold
 Run unit tests with:
 
 ```bash
-python3 -m unittest discover -s tests -v
+node --test tests/*.test.js
 ```
+
+Run the drawing workflow in an isolated browser with the local server running,
+Playwright available to Node, and Chrome installed:
+
+```bash
+node tests/browser/drawing-workflow.cjs
+```
+
+The browser check uses `http://127.0.0.1:8000/tools/draw/` by default. Set
+`DRAW_TEST_URL` to use another local URL. It creates a separate anonymous browser
+session and does not use your open drawing tab.

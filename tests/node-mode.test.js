@@ -1,26 +1,8 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const fs = require('node:fs');
 const vm = require('node:vm');
-const source = fs.readFileSync(require('node:path').join(__dirname, '../static/fern-draw.js'), 'utf8');
-function extract(name) {
-  const start = source.indexOf(`function ${name}(`);
-  return source.slice(start, source.indexOf('\nfunction ', start + 1));
-}
-function setup(d) {
-  const attrs = { d };
-  const path = { tagName: 'path', getAttribute: k => attrs[k] || null,
-    setAttribute: (k, v) => { attrs[k] = v; }, removeAttribute: k => { delete attrs[k]; } };
-  const ctx = vm.createContext({ fernSelectedElement: path, fernSelectedNodeIndices: new Set(),
-    fernSelectedPointIndex: null, fern_snap: v => v, fern_setEditorStatus() {}, fern_renderPointHandles() {} });
-  const names = ['fern_formatNumber', 'fern_getTagName', 'fern_nodeModeKey', 'fern_getNodeModeOverrides',
-    'fern_setNodeModeOverride', 'fern_hasSmoothControlGeometry', 'fern_pathTokens', 'fern_serializePathTokens',
-    'fern_absolutizePath', 'fern_getPathPointRefs', 'fern_getPointRefs', 'fern_refHasPosition',
-    'fern_selectedAnchorRefs', 'fern_pathCommand', 'fern_selectAnchorOrdinals',
-    'fern_convertAdjacentSegmentsToCurves', 'fern_setAbsolutePathPair', 'fern_setNodeMode', 'fern_setSelectedSegmentMode'];
-  vm.runInContext(names.map(extract).join('\n'), ctx);
-  return { ctx, path, anchors: () => ctx.fern_getPointRefs(path).filter(ctx.fern_refHasPosition) };
-}
+const { extract, setup } = require('./helpers/draw');
+
 for (const d of ['M 0 0 L 30 0 L 30 30 L 60 30', 'm 0 0 30 0 0 30 30 0', 'M 0 0 H 30 V 30 H 60', 'M 0 0 L 30 0 L 30 30 Z']) {
   test(`batch smooth preserves anchors, selection, and types: ${d}`, () => {
     const { ctx, path, anchors } = setup(d);
@@ -106,7 +88,7 @@ for (const side of [0, 1]) {
           fernEditor: { querySelector: () => null }, fern_getSelectedElements: () => [path],
           fern_getCanvasPoint: e => ({ x: e.x, y: e.y }), fern_getElementPoint: e => ({ x: e.x, y: e.y }),
           fern_setCoordinateReadout() {}, fern_beginHistory() {},
-          fernSpacePressed: false, fernDrawPathMode: false, fernPanState: null,
+          fernSpacePressed: false, fernPanState: null,
           fernMarqueeState: null, fernResizeState: null, fernPointDragState: null,
         });
         vm.runInContext(['fern_handlePointerDown', 'fern_handlePointerMove', 'fern_applyPointRef', 'fern_setPathPair'].map(extract).join('\n'), ctx);

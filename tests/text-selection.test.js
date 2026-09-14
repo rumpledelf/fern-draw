@@ -20,7 +20,7 @@ test('text selection uses the same four square anchor handles as rectangles', ()
         shape.getBBox = () => ({x: 0, y: 0, width: 100, height: 20});
         const svg = element('svg');
         svg.getScreenCTM = () => ({ a: scale, b: 0, c: 0, d: scale });
-        const ctx = vm.createContext({
+        const ctx = vm.createContext({ fernCanvasAction: null,
           fernActiveSvg: svg, fernEditorMode: 'select-node', fernSelectedElement: shape,
           fern_getSelectedElements: () => [shape], fern_clearHandles: () => {},
           fern_getTagName: el => el.tagName, fern_numericAttr: (_, attr) => ({x: 0, y: 0, width: 100, height: 20})[attr],
@@ -50,13 +50,13 @@ for (const tag of ['text', 'rect']) {
     const hit = tag === 'text' ? element('tspan') : shape;
     if (hit !== shape) shape.children.push(hit);
     let selected = [];
-    const ctx = vm.createContext({
+    const ctx = vm.createContext({ fernCanvasAction: null,
       fernActiveSvg: {setPointerCapture() {}}, fernEditorMode: 'select-node',
-      fernSpacePressed: false, fernDrawPathMode: false, fernDragState: null,
+      fernSpacePressed: false, fernDragState: null,
       fern_getCanvasPoint: () => ({x: 10, y: 20}),
       fernEditor: {querySelector: () => null},
       fern_getSelectedElements: () => selected,
-      fern_selectableTarget: () => shape,
+      fern_selectableTarget: () => shape, fern_selectPathSegment: () => false,
       fern_selectElements: shapes => { selected = shapes; },
       fern_getOriginalAttrs: () => ({x: 0, y: 0}),
       event: {button: 0, target: hit, preventDefault() {}, pointerId: 1},
@@ -80,7 +80,7 @@ test('alignment transitions preserve the text block left edge and shift every li
       spans.forEach(span => { span.attrs.x = text.attrs.x; });
       text.querySelectorAll = () => spans;
       text.getBBox = () => ({x: Number(text.attrs.x) - offsets[to]});
-      const ctx = vm.createContext({
+      const ctx = vm.createContext({ fernCanvasAction: null,
         text,
         fern_numericAttr: (el, attr) => Number(el.attrs[attr]),
         fern_setNumericAttr: (el, attr, value) => { el.attrs[attr] = value; },

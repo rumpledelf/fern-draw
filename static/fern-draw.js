@@ -218,8 +218,8 @@ let fernZoomLevel = 1;
 let fernZoomCenter = null;
 let fernPanState = null;
 let fernSpacePressed = false;
-let fernAddNodeMode = false;
-let fernDrawPathMode = false;
+// Only one temporary canvas action can own clicks at a time.
+let fernCanvasAction = null;
 let fernPathBuildingPoints = [];
 let fernDrawingPathElement = null;
 let fernClipboard = null;
@@ -443,10 +443,16 @@ function fern_renderTraceBackdrop() {
   img.setAttribute("pointer-events", "none");
 }
 
+function fern_setCanvasAction(action) {
+  fernCanvasAction = action;
+  fernActiveSvg?.classList.toggle("is-drawing-path", action === "draw-path");
+}
+
 function fern_setEditorMode(mode) {
-  if (fernDrawPathMode && mode !== "draw" && mode !== "pan") {
+  if (fernCanvasAction === "draw-path") {
     fern_finishDrawPath(false);
   }
+  fern_setCanvasAction(null);
   fernEditorMode = mode;
   fern_updateModeControls();
 
@@ -508,43 +514,34 @@ function fern_updateModeControls() {
 }
 
 function fern_activateDrawPathMode() {
-  fernDrawPathMode = true;
+  if (!fernActiveSvg) return;
+  fern_setEditorMode("draw");
+  fern_setCanvasAction("draw-path");
   fernPathBuildingPoints = [];
   fernDrawingPathElement = null;
   fern_clearHandles();
-  if (fernActiveSvg) {
-    fernActiveSvg.classList.add("is-drawing-path");
-  }
   fern_setEditorStatus("Draw path: click canvas to add vertices, double-click or Enter to close path, Esc to finish open.");
 }
 
+function fern_drawingPathData(extraPoint = null, closed = false) {
+  const points = extraPoint ? [...fernPathBuildingPoints, extraPoint] : fernPathBuildingPoints;
+  return points.map((point, index) => `${index ? "L" : "M"} ${fern_snap(point.x)} ${fern_snap(point.y)}`).join(" ") + (closed ? " Z" : "");
+}
+
 function fern_updateDrawingPath(currentPointer = null) {
-  if (!fernDrawingPathElement || fernPathBuildingPoints.length === 0) {
-    return;
+  if (fernDrawingPathElement && fernPathBuildingPoints.length) {
+    fernDrawingPathElement.setAttribute("d", fern_drawingPathData(currentPointer));
   }
-  let d = `M ${fernPathBuildingPoints[0].x} ${fernPathBuildingPoints[0].y}`;
-  for (let i = 1; i < fernPathBuildingPoints.length; i += 1) {
-    d += ` L ${fernPathBuildingPoints[i].x} ${fernPathBuildingPoints[i].y}`;
-  }
-  if (currentPointer) {
-    d += ` L ${fern_snap(currentPointer.x)} ${fern_snap(currentPointer.y)}`;
-  }
-  fernDrawingPathElement.setAttribute("d", d);
 }
 
 function fern_finishDrawPath(closed = true) {
-  if (!fernDrawPathMode) {
+  if (fernCanvasAction !== "draw-path") {
     return;
   }
+  fern_setCanvasAction(null);
+  fern_setEditorMode("select-node");
   if (fernDrawingPathElement && fernPathBuildingPoints.length > 1) {
-    let d = `M ${fernPathBuildingPoints[0].x} ${fernPathBuildingPoints[0].y}`;
-    for (let i = 1; i < fernPathBuildingPoints.length; i += 1) {
-      d += ` L ${fernPathBuildingPoints[i].x} ${fernPathBuildingPoints[i].y}`;
-    }
-    if (closed) {
-      d += " Z";
-    }
-    fernDrawingPathElement.setAttribute("d", d);
+    fernDrawingPathElement.setAttribute("d", fern_drawingPathData(null, closed));
     fern_selectElement(fernDrawingPathElement);
     fern_commitHistory();
     fern_setEditorStatus(closed ? "Closed path created." : "Open path created.");
@@ -552,15 +549,8 @@ function fern_finishDrawPath(closed = true) {
     fernDrawingPathElement.remove();
     fern_selectElement(null);
   }
-  fernDrawPathMode = false;
   fernPathBuildingPoints = [];
   fernDrawingPathElement = null;
-  if (fernActiveSvg) {
-    fernActiveSvg.classList.remove("is-drawing-path");
-  }
-  if (fernEditorMode === "draw") {
-    fern_setEditorMode("select");
-  }
 }
 
 function fern_snap(value) {
@@ -3354,36 +3344,14 @@ function fern_getPointRefs(element) {
 
 function fern_selectedSegmentPath(refs) {
   const segment = fern_selectedSegment(refs);
-  if (!segment) {
-    return null;
-  }
-
-  return `M ${fern_formatNumber(segment.start.x)} ${fern_formatNumber(segment.start.y)} ${fern_serializePathTokens(segment.end.tokens.slice(segment.end.segmentStart, segment.end.segmentEnd))}`;
+  if (!segment) return null;
+  const tokens = segment.closing ? fern_pathCommand("L", segment.end.x, segment.end.y) : segment.tokens;
+  return `M ${fern_formatNumber(segment.start.x)} ${fern_formatNumber(segment.start.y)} ${fern_serializePathTokens(tokens)}`;
 }
 
 function fern_selectedSegment(refs = fern_getPointRefs(fernSelectedElement)) {
-  const anchors = refs.filter(fern_refHasPosition);
-  const selectedOrdinals = anchors
-    .map((anchor, ordinal) => ({ ordinal, refIndex: refs.indexOf(anchor) }))
-    .filter(({ refIndex }) => fernSelectedNodeIndices.has(refIndex))
-    .map(({ ordinal }) => ordinal)
-    .sort((a, b) => a - b);
-  if (selectedOrdinals.length !== 2 || selectedOrdinals[1] !== selectedOrdinals[0] + 1) {
-    return null;
-  }
-
-  const start = anchors[selectedOrdinals[0]];
-  const end = anchors[selectedOrdinals[1]];
-  if (!Number.isInteger(end.segmentStart) || !Number.isInteger(end.segmentEnd)) {
-    return null;
-  }
-
-  return {
-    start,
-    end,
-    firstOrdinal: selectedOrdinals[0],
-    tokens: end.tokens.slice(end.segmentStart, end.segmentEnd),
-  };
+  const selected = refs.filter(fern_refHasPosition).map((ref, ordinal) => fernSelectedNodeIndices.has(refs.indexOf(ref)) ? ordinal : -1).filter(ordinal => ordinal >= 0);
+  return selected.length === 2 ? fern_pathSegments(refs).find(segment => selected.includes(segment.firstOrdinal) && selected.includes(segment.endOrdinal)) || null : null;
 }
 
 function fern_renderPointHandles() {
@@ -3519,61 +3487,155 @@ function fern_pathCommand(command, ...values) {
   ];
 }
 
+function fern_writePath(element, d, nodeModes) {
+  element.setAttribute("d", d);
+  element.removeAttribute("data-node-modes");
+  const anchors = fern_getPointRefs(element).filter(fern_refHasPosition);
+  anchors.forEach((ref, index) => {
+    if (nodeModes[index]) fern_setNodeModeOverride(element, ref, nodeModes[index]);
+  });
+  return anchors;
+}
+
 function fern_selectAnchorOrdinals(ordinals) {
   const refs = fern_getPointRefs(fernSelectedElement);
   const anchors = refs.filter(fern_refHasPosition);
   fernSelectedNodeIndices = new Set(ordinals.map((ordinal) => refs.indexOf(anchors[ordinal])).filter((index) => index >= 0));
 }
 
-function fern_pathWithClosure(d, closed) {
+function fern_planNodeConnection(d, selectedOrdinals, add) {
   const tokens = fern_pathTokens(fern_absolutizePath(d));
-  const result = [];
-  let open = false;
-  for (const token of tokens) {
-    const command = token.type === "command" ? token.value.toUpperCase() : "";
+  const subpaths = [];
+  let subpath = null;
+  let previous = null;
+  for (let i = 0; i < tokens.length;) {
+    const command = tokens[i++].value;
+    const values = [];
+    while (i < tokens.length && tokens[i].type === "number") values.push(tokens[i++].value);
     if (command === "M") {
-      if (closed && open) result.push(...fern_pathCommand("Z"));
-      open = true;
-    }
-    if (command === "Z") {
-      if (closed) result.push(token);
-      open = false;
+      subpath = { nodes: [{ x: values[0], y: values[1] }], edges: [], closed: false };
+      subpaths.push(subpath);
+      previous = null;
+    } else if (command === "Z" && subpath) {
+      const first = subpath.nodes[0];
+      const last = subpath.nodes[subpath.nodes.length - 1];
+      if (subpath.nodes.length > 1 && first.x === last.x && first.y === last.y) {
+        subpath.nodes.pop();
+      } else {
+        subpath.edges.push({ command: "L", values: [first.x, first.y] });
+      }
+      subpath.closed = true;
+      previous = null;
+    } else if (subpath && ["L", "C", "Q", "S", "T", "A"].includes(command)) {
+      const start = subpath.nodes[subpath.nodes.length - 1];
+      let edge = { command, values };
+      // Expand reflected controls before splitting or reversing a subpath.
+      if (command === "S") {
+        const control = previous?.command === "C" ? previous.values.slice(2, 4) : [start.x, start.y];
+        edge = { command: "C", values: [2 * start.x - control[0], 2 * start.y - control[1], ...values] };
+      } else if (command === "T") {
+        const control = previous?.command === "Q" ? previous.values.slice(0, 2) : [start.x, start.y];
+        edge = { command: "Q", values: [2 * start.x - control[0], 2 * start.y - control[1], ...values] };
+      }
+      subpath.edges.push(edge);
+      subpath.nodes.push({ x: values[values.length - 2], y: values[values.length - 1] });
+      previous = edge;
     } else {
-      result.push(token);
+      return { error: "That path cannot be edited here." };
     }
   }
-  if (closed && open) result.push(...fern_pathCommand("Z"));
-  return fern_serializePathTokens(result);
+  let ordinal = 0;
+  for (const part of subpaths) for (const node of part.nodes) node.ordinal = ordinal++;
+  const selected = subpaths.flatMap(part => part.nodes).filter(node => selectedOrdinals.includes(node.ordinal));
+  if (selected.length !== 2) return { error: "Select exactly two nodes." };
+  const [first, second] = selected;
+  const firstPart = subpaths.find(part => part.nodes.includes(first));
+  const secondPart = subpaths.find(part => part.nodes.includes(second));
+  const edgeIndex = firstPart === secondPart ? firstPart.edges.findIndex((edge, index) => {
+    const a = firstPart.nodes[index];
+    const b = firstPart.nodes[(index + 1) % firstPart.nodes.length];
+    return (a === first && b === second) || (a === second && b === first);
+  }) : -1;
+  if (add) {
+    if (edgeIndex >= 0) return { error: "Those nodes already have a line between them." };
+    const isEndpoint = (part, node) => !part.closed && (part.nodes[0] === node || part.nodes[part.nodes.length - 1] === node);
+    if (!isEndpoint(firstPart, first) || !isEndpoint(secondPart, second)) {
+      return { error: "Select two open endpoints to add a line." };
+    }
+    if (firstPart === secondPart) {
+      firstPart.edges.push({ command: "L", values: [firstPart.nodes[0].x, firstPart.nodes[0].y] });
+      firstPart.closed = true;
+    } else {
+      const reverse = part => {
+        part.edges = part.edges.map((edge, index) => {
+          const end = part.nodes[index];
+          let controls = edge.values.slice(0, -2);
+          if (edge.command === "C") controls = [...controls.slice(2, 4), ...controls.slice(0, 2)];
+          if (edge.command === "A") controls[4] = 1 - controls[4];
+          return { command: edge.command, values: [...controls, end.x, end.y] };
+        }).reverse();
+        part.nodes.reverse();
+      };
+      if (firstPart.nodes[firstPart.nodes.length - 1] !== first) reverse(firstPart);
+      if (secondPart.nodes[0] !== second) reverse(secondPart);
+      firstPart.edges.push({ command: "L", values: [second.x, second.y] }, ...secondPart.edges);
+      firstPart.nodes.push(...secondPart.nodes);
+      subpaths.splice(subpaths.indexOf(secondPart), 1);
+    }
+  } else {
+    if (edgeIndex < 0) return { error: "Select the two nodes at either end of an existing line." };
+    if (firstPart.closed) {
+      firstPart.nodes = [...firstPart.nodes.slice(edgeIndex + 1), ...firstPart.nodes.slice(0, edgeIndex + 1)];
+      firstPart.edges = [...firstPart.edges.slice(edgeIndex + 1), ...firstPart.edges.slice(0, edgeIndex)];
+      firstPart.closed = false;
+    } else {
+      const tail = { nodes: firstPart.nodes.splice(edgeIndex + 1), edges: firstPart.edges.splice(edgeIndex + 1), closed: false };
+      firstPart.edges.pop();
+      subpaths.splice(subpaths.indexOf(firstPart) + 1, 0, tail);
+    }
+  }
+  const output = [];
+  for (const part of subpaths) {
+    output.push(...fern_pathCommand("M", part.nodes[0].x, part.nodes[0].y));
+    part.edges.forEach((edge, index) => {
+      if (!(part.closed && index === part.edges.length - 1 && edge.command === "L")) {
+        output.push(...fern_pathCommand(edge.command, ...edge.values));
+      }
+    });
+    if (part.closed) output.push(...fern_pathCommand("Z"));
+  }
+  return { d: fern_serializePathTokens(output), originalNodeCount: ordinal, nodeOrder: subpaths.flatMap(part => part.nodes.map(node => node.ordinal)) };
 }
 
-function fern_setSelectedPathsClosed(closed) {
-  const paths = fern_getSelectedElements().filter((element) => fern_getTagName(element) === "path");
-  if (!paths.length) {
-    fern_setEditorStatus("Select a path first.");
+function fern_setSelectedNodeConnection(add) {
+  if (!fernSelectedElement || fern_getTagName(fernSelectedElement) !== "path") {
+    fern_setEditorStatus("Select two nodes on a path first.");
     return;
   }
-  fern_beginHistory();
-  for (const path of paths) {
-    const refs = fern_getPointRefs(path);
-    const anchors = refs.filter((ref) => ref.role !== "control");
-    const overrides = fern_getNodeModeOverrides(path);
-    const modes = anchors.map((ref) => overrides[fern_nodeModeKey(ref)]);
-    const selected = anchors.map((ref) => fernSelectedNodeIndices.has(refs.indexOf(ref)));
-    path.setAttribute("d", fern_pathWithClosure(path.getAttribute("d") || "", closed));
-    path.removeAttribute("data-node-modes");
-    const updatedRefs = fern_getPointRefs(path);
-    const updated = updatedRefs.filter((ref) => ref.role !== "control");
-    updated.forEach((ref, index) => {
-      if (modes[index]) fern_setNodeModeOverride(path, ref, modes[index]);
-    });
-    if (path === fernSelectedElement) {
-      fernSelectedNodeIndices = new Set(updated.filter((ref, index) => selected[index] && fern_refHasPosition(ref)).map((ref) => updatedRefs.indexOf(ref)));
-      fernSelectedPointIndex = [...fernSelectedNodeIndices][0] ?? null;
-    }
+  const refs = fern_getPointRefs(fernSelectedElement);
+  const anchors = refs.filter(fern_refHasPosition);
+  const selectedOrdinals = anchors.map((ref, ordinal) => fernSelectedNodeIndices.has(refs.indexOf(ref)) ? ordinal : -1).filter(ordinal => ordinal >= 0);
+  if (selectedOrdinals.length !== 2) {
+    fern_setEditorStatus("Select exactly two nodes.");
+    return;
   }
+  const result = fern_planNodeConnection(fernSelectedElement.getAttribute("d") || "", selectedOrdinals, add);
+  if (result.error) {
+    fern_setEditorStatus(result.error);
+    return;
+  }
+  if (result.originalNodeCount !== anchors.length) {
+    fern_setEditorStatus("That path contains nodes this editor cannot connect yet.");
+    return;
+  }
+  const modes = anchors.map(ref => ref.pointMode);
+  fern_beginHistory();
+  fern_writePath(fernSelectedElement, result.d, result.nodeOrder.map(ordinal => modes[ordinal]));
+  fern_selectAnchorOrdinals(result.nodeOrder.map((ordinal, index) => selectedOrdinals.includes(ordinal) ? index : -1).filter(index => index >= 0));
+  fernSelectedPointIndex = [...fernSelectedNodeIndices][0] ?? null;
   fern_renderPointHandles();
   fern_commitHistory();
-  fern_setEditorStatus(closed ? "Path closed." : "Path opened. SVG fills can still span the opening.");
+  fern_setEditorStatus(add ? "Line added between selected nodes." : "Line removed between selected nodes.");
 }
 
 function fern_setSelectedSegmentMode(mode) {
@@ -3639,13 +3701,9 @@ function fern_setSelectedSegmentMode(mode) {
 
   const tokens = fern_pathTokens(fernSelectedElement.getAttribute("d") || "");
   tokens.splice(segmentStart, segmentEnd - segmentStart, ...replacement);
-  fernSelectedElement.setAttribute("d", fern_serializePathTokens(tokens));
   const overrides = fern_getNodeModeOverrides(fernSelectedElement);
   const nodeModes = anchors.map((ref) => overrides[fern_nodeModeKey(ref)]);
-  fernSelectedElement.removeAttribute("data-node-modes");
-  fern_getPointRefs(fernSelectedElement).filter(fern_refHasPosition).forEach((ref, ordinal) => {
-    if (nodeModes[ordinal]) fern_setNodeModeOverride(fernSelectedElement, ref, nodeModes[ordinal]);
-  });
+  fern_writePath(fernSelectedElement, fern_serializePathTokens(tokens), nodeModes);
   fernSelectedPointIndex = null;
   fern_selectAnchorOrdinals([firstOrdinal, secondOrdinal]);
   fern_setEditorStatus(mode === "straight" ? "Segment made straight." : "Segment made curved. Drag its orange handles.");
@@ -3680,57 +3738,57 @@ function fern_pointOnSegment(segment, t) {
   return null;
 }
 
+function fern_pathSegments(refs) {
+  const anchors = refs.filter(ref => ref.role !== "control");
+  const visible = anchors.filter(fern_refHasPosition);
+  const segments = [];
+  for (let index = 1; index < anchors.length; index++) {
+    const start = anchors[index - 1], end = anchors[index];
+    if (end.role === "M" || !Number.isInteger(end.segmentStart)) continue;
+    const visibleEnd = end.hiddenAnchor ? visible.find(ref => ref.linkedAnchors?.includes(end)) : end;
+    segments.push({start, end, firstOrdinal: visible.indexOf(start), endOrdinal: visible.indexOf(visibleEnd),
+      tokens: end.tokens.slice(end.segmentStart, end.segmentEnd)});
+  }
+  for (const start of visible.filter(ref => ref.closingTo)) {
+    segments.push({start, end: start.closingTo, firstOrdinal: visible.indexOf(start), endOrdinal: visible.indexOf(start.closingTo),
+      tokens: fern_pathCommand("Z"), closing: true, closingTokenIndex: start.closingTokenIndex});
+  }
+  return segments;
+}
+
+function fern_normalizedPath(path) {
+  const d = fern_absolutizePath(path.getAttribute("d") || "");
+  return { d, tagName: "path", getAttribute: name => name === "d" ? d : null };
+}
+
 function fern_closestPathSegment(element, point) {
-  const refs = fern_getPointRefs(element);
-  const anchors = refs.filter((ref) => (
-    ref && ref.role !== "control" && (ref.type === "path-pair" || ref.type === "path-h" || ref.type === "path-v")
-  ));
   let closest = null;
-
-  for (let index = 1; index < anchors.length; index += 1) {
-    const end = anchors[index];
-    if (!Number.isInteger(end.segmentStart) || !Number.isInteger(end.segmentEnd)) {
-      continue;
-    }
-    const segment = {
-      start: anchors[index - 1],
-      end,
-      firstOrdinal: index - 1,
-      tokens: end.tokens.slice(end.segmentStart, end.segmentEnd),
-    };
-    for (let step = 0; step <= 64; step += 1) {
-      const t = step / 64;
+  for (const segment of fern_pathSegments(fern_getPointRefs(element))) {
+    const distanceAt = t => {
       const sample = fern_pointOnSegment(segment, t);
-      if (!sample) {
-        continue;
-      }
-      const distance = (sample.x - point.x) ** 2 + (sample.y - point.y) ** 2;
-      if (!closest || distance < closest.distance) {
-        closest = { ...segment, t, distance };
-      }
-    }
-  }
-
-  const closingStart = anchors[anchors.length - 1];
-  if (closingStart && closingStart.closingTo) {
-    const segment = {
-      start: closingStart,
-      end: closingStart.closingTo,
-      firstOrdinal: anchors.length - 1,
-      tokens: [{ type: "command", value: "Z" }],
-      closing: true,
-      closingTokenIndex: closingStart.closingTokenIndex,
+      return sample ? (sample.x - point.x) ** 2 + (sample.y - point.y) ** 2 : Infinity;
     };
-    for (let step = 0; step <= 64; step += 1) {
-      const t = step / 64;
-      const sample = fern_pointOnSegment(segment, t);
-      const distance = (sample.x - point.x) ** 2 + (sample.y - point.y) ** 2;
-      if (!closest || distance < closest.distance) {
-        closest = { ...segment, t, distance };
+    let t = 0, distance = Infinity;
+    if (["L", "H", "V", "Z"].includes(segment.tokens[0]?.value.toUpperCase())) {
+      const dx = segment.end.x - segment.start.x, dy = segment.end.y - segment.start.y;
+      const lengthSquared = dx * dx + dy * dy;
+      t = lengthSquared ? Math.max(0, Math.min(1, ((point.x-segment.start.x)*dx + (point.y-segment.start.y)*dy) / lengthSquared)) : 0;
+    } else {
+      for (let step = 0; step <= 64; step++) {
+        const candidate = distanceAt(step / 64);
+        if (candidate < distance) { t = step / 64; distance = candidate; }
       }
+      let low = Math.max(0, t - 1/64), high = Math.min(1, t + 1/64);
+      for (let step = 0; step < 24; step++) {
+        const left = low + (high-low)/3, right = high - (high-low)/3;
+        if (distanceAt(left) < distanceAt(right)) high = right;
+        else low = left;
+      }
+      if (distanceAt((low+high)/2) < distance) t = (low+high)/2;
     }
+    distance = distanceAt(t);
+    if (Number.isFinite(distance) && (!closest || distance < closest.distance)) closest = {...segment, t, distance};
   }
-
   return closest;
 }
 
@@ -3740,17 +3798,20 @@ function fern_addNodeToSegment(segment, t = 0.5) {
   const segmentTokens = segment.tokens;
   const command = segmentTokens[0] && segmentTokens[0].type === "command" ? segmentTokens[0].value.toUpperCase() : "";
   let replacement = [];
+  const modes = fern_getPointRefs(fernSelectedElement).filter(fern_refHasPosition).map(ref => ref.pointMode);
+  function finishInsertion() {
+    modes.splice(firstOrdinal + 1, 0, null);
+    fern_writePath(fernSelectedElement, fern_serializePathTokens(tokens), modes);
+    fern_selectAnchorOrdinals([firstOrdinal + 1]);
+    fernSelectedPointIndex = [...fernSelectedNodeIndices][0] ?? null;
+    fern_setEditorStatus("Node added.");
+    return true;
+  }
 
   if (segment.closing) {
     const middle = fern_interpolate(start, end, t);
     tokens.splice(segment.closingTokenIndex, 0, ...fern_pathCommand("L", middle.x, middle.y));
-    fernSelectedElement.setAttribute("d", fern_serializePathTokens(tokens));
-    fernSelectedElement.removeAttribute("data-node-modes");
-    fernSelectedPointIndex = null;
-    fern_selectAnchorOrdinals([firstOrdinal + 1]);
-    fern_setEditorStatus("Node added.");
-    fern_renderPointHandles();
-    return true;
+    return finishInsertion();
   }
 
   if (command === "L" || command === "H" || command === "V") {
@@ -3787,19 +3848,100 @@ function fern_addNodeToSegment(segment, t = 0.5) {
   }
 
   tokens.splice(end.segmentStart, end.segmentEnd - end.segmentStart, ...replacement);
-  fernSelectedElement.setAttribute("d", fern_serializePathTokens(tokens));
-  fernSelectedElement.removeAttribute("data-node-modes");
-  fernSelectedPointIndex = null;
-  fern_selectAnchorOrdinals([firstOrdinal + 1]);
-  fern_setEditorStatus("Node added.");
+  return finishInsertion();
+}
+
+function fern_addSelectedSegmentNode() {
+  const path = fernSelectedElement;
+  if (!path || fern_getTagName(path) !== "path") {
+    fern_setEditorStatus("Select a line or curve, then Add Node.");
+    return;
+  }
+  const refs = fern_getPointRefs(path);
+  const anchors = refs.filter(fern_refHasPosition);
+  const selected = anchors.map((ref, index) => fernSelectedNodeIndices.has(refs.indexOf(ref)) ? index : -1).filter(index => index >= 0);
+  const normalized = fern_normalizedPath(path);
+  const segments = fern_pathSegments(fern_getPointRefs(normalized));
+  const segment = segments.find(segment => selected.length === 2 && selected.includes(segment.firstOrdinal) && selected.includes(segment.endOrdinal))
+    || (segments.length === 1 ? segments[0] : null);
+  if (!segment) {
+    fern_setEditorStatus("Click a line or curve, or select its two end nodes, then Add Node.");
+    return;
+  }
+  fern_beginHistory();
+  fern_setEditorMode("select-node");
+  fern_selectElements([path]);
+  fern_writePath(path, normalized.d, anchors.map(ref => ref.pointMode));
+  fern_addNodeToSegment(segment, 0.5);
+  fern_commitHistory();
   fern_renderPointHandles();
+}
+
+function fern_selectPathSegment(event) {
+  if (fernEditorMode !== "select-node" || event.shiftKey || event.altKey) return false;
+  const path = fern_selectableTarget(event.target, event);
+  if (!path || fern_getTagName(path) !== "path") return false;
+  const point = fern_getElementPoint(event, path);
+  const normalized = fern_normalizedPath(path);
+  const segment = fern_closestPathSegment(normalized, point);
+  const tolerance = fern_screenPixelsToElementUnits(path, 8);
+  if (!segment || segment.distance > tolerance * tolerance || segment.t <= 0.01 || segment.t >= 0.99) return false;
+  const modes = fern_getPointRefs(path).filter(fern_refHasPosition).map(ref => ref.pointMode);
+  fern_selectElements([path]);
+  fern_selectAnchorOrdinals([segment.firstOrdinal, segment.endOrdinal]);
+  fernSelectedPointIndex = null;
+  fern_renderPointHandles();
+  if (["C", "Q"].includes(segment.tokens[0].value.toUpperCase())) {
+    fernDragState = { segment, element: path, d: normalized.d, modes,
+      startPoint: point, clientX: event.clientX, clientY: event.clientY, moved: false };
+    fernActiveSvg.setPointerCapture(event.pointerId);
+  }
+  event.preventDefault();
   return true;
 }
 
-function fern_activateAddNodeMode() {
-  fernAddNodeMode = true;
-  fernActiveSvg.classList.add("is-adding-node");
-  fern_setEditorStatus("Click the curve or line to split.");
+function fern_bendSegment(segment, dx, dy) {
+  const values = segment.tokens.map(token => ({...token}));
+  const t = Math.max(0.05, Math.min(0.95, segment.t));
+  const weights = values[0].value.toUpperCase() === "C" ? [3*(1-t)*(1-t)*t, 3*(1-t)*t*t] : [2*(1-t)*t];
+  const denominator = weights.reduce((sum, weight) => sum + weight*weight, 0);
+  weights.forEach((weight, index) => {
+    values[1 + index*2].value += dx * weight / denominator;
+    values[2 + index*2].value += dy * weight / denominator;
+  });
+  return values;
+}
+
+function fern_dragPathSegment(event) {
+  const drag = fernDragState;
+  if (!drag.moved) {
+    if (Math.hypot(event.clientX-drag.clientX, event.clientY-drag.clientY) < 3) return;
+    fern_beginHistory();
+    drag.moved = true;
+  }
+  const point = fern_getElementPoint(event, drag.element);
+  const tokens = fern_pathTokens(drag.d);
+  tokens.splice(drag.segment.end.segmentStart, drag.segment.end.segmentEnd-drag.segment.end.segmentStart,
+    ...fern_bendSegment(drag.segment, point.x-drag.startPoint.x, point.y-drag.startPoint.y));
+  fern_writePath(drag.element, fern_serializePathTokens(tokens), drag.modes);
+  // Keep neighboring smooth handles aligned without changing their lengths.
+  const refs = fern_getPointRefs(drag.element);
+  const segment = fern_pathSegments(refs).find(segment => segment.firstOrdinal === drag.segment.firstOrdinal && segment.endOrdinal === drag.segment.endOrdinal);
+  const controls = refs.filter(ref => ref.role === "control" && ref.xRef.tokenIndex > segment.end.segmentStart && ref.yRef.tokenIndex < segment.end.segmentEnd);
+  for (const control of controls) {
+    const anchor = control.connectTo;
+    if (anchor?.pointMode !== "smooth") continue;
+    const paired = anchor.controls.find(ref => ref !== control && !controls.includes(ref));
+    if (!paired) continue;
+    const dx = control.x-anchor.x, dy = control.y-anchor.y, length = Math.hypot(dx,dy);
+    if (length) {
+      const ratio = Math.hypot(paired.x-anchor.x, paired.y-anchor.y) / length;
+      fern_setAbsolutePathPair(paired, anchor.x-dx*ratio, anchor.y-dy*ratio);
+    }
+  }
+  if (refs.length) drag.element.setAttribute("d", fern_serializePathTokens(refs[0].tokens));
+  fern_selectAnchorOrdinals([drag.segment.firstOrdinal, drag.segment.endOrdinal]);
+  fern_renderPointHandles();
 }
 
 function fern_lineToPath(line) {
@@ -3903,10 +4045,7 @@ function fern_setNodeMode(mode) {
       fern_convertAdjacentSegmentsToCurves(fernSelectedElement, anchor);
     }
   }
-  fernSelectedElement.removeAttribute("data-node-modes");
-  fern_getPointRefs(fernSelectedElement).filter(fern_refHasPosition).forEach((ref, index) => {
-    fern_setNodeModeOverride(fernSelectedElement, ref, ordinals.includes(index) ? mode : modes[index]);
-  });
+  fern_writePath(fernSelectedElement, fernSelectedElement.getAttribute("d"), modes.map((previous, index) => ordinals.includes(index) ? mode : previous));
   for (const ordinal of ordinals) {
     const updatedAnchor = fern_getPointRefs(fernSelectedElement).filter(fern_refHasPosition)[ordinal];
     const [first, second] = updatedAnchor.controls || [];
@@ -4785,26 +4924,9 @@ function fern_handlePointerDown(event) {
   const resizeHandle = event.target.closest("[data-resize-handle]");
   const stage = fernEditor.querySelector("[data-svg-canvas]")?.parentElement;
 
-  if (fernDrawPathMode) {
-    event.preventDefault();
-    if (event.detail > 1) return;
-    if (!fernDrawingPathElement) {
-      fern_beginHistory();
-      fernDrawingPathElement = document.createElementNS(FERN_SVG_NS, "path");
-      fernDrawingPathElement.setAttribute("fill", fernToolbarColors.fill || "#ffffff");
-      fernDrawingPathElement.setAttribute("stroke", fernToolbarColors.stroke || "#000000");
-      fernDrawingPathElement.setAttribute("stroke-width", "1");
-      fernActiveSvg.append(fernDrawingPathElement);
-    }
-    fernPathBuildingPoints.push({ x: fern_snap(point.x), y: fern_snap(point.y) });
-    fern_updateDrawingPath();
-    fern_setEditorStatus(`Path points: ${fernPathBuildingPoints.length}. Double-click or Enter to finish.`);
-    return;
-  }
-
   // Navigation never changes selection, even when a pan starts on artwork or
   // an editor handle. Space and the middle mouse button temporarily pan too.
-  const shouldPan = fernEditorMode === "pan" || (fernEditorMode === "draw" && !fernDrawPathMode) || fernSpacePressed || event.button === 1;
+  const shouldPan = (fernCanvasAction === null && (fernEditorMode === "pan" || fernEditorMode === "draw")) || fernSpacePressed || event.button === 1;
   if (shouldPan) {
     event.preventDefault();
     fernPanState = {
@@ -4815,6 +4937,25 @@ function fern_handlePointerDown(event) {
     };
     fernActiveSvg.classList.add("is-panning");
     fernActiveSvg.setPointerCapture(event.pointerId);
+    return;
+  }
+
+  if (fernCanvasAction === "draw-path") {
+    event.preventDefault();
+    if (!fernDrawingPathElement) {
+      fern_beginHistory();
+      fernDrawingPathElement = document.createElementNS(FERN_SVG_NS, "path");
+      fernDrawingPathElement.setAttribute("fill", fernToolbarColors.fill || "#ffffff");
+      fernDrawingPathElement.setAttribute("stroke", fernToolbarColors.stroke || "#000000");
+      fernDrawingPathElement.setAttribute("stroke-width", "1");
+      fernActiveSvg.append(fernDrawingPathElement);
+    }
+    const vertex = { x: fern_snap(point.x), y: fern_snap(point.y) };
+    const last = fernPathBuildingPoints[fernPathBuildingPoints.length - 1];
+    if (last && last.x === vertex.x && last.y === vertex.y) return;
+    fernPathBuildingPoints.push(vertex);
+    fern_updateDrawingPath();
+    fern_setEditorStatus(`Path points: ${fernPathBuildingPoints.length}. Double-click or Enter to finish.`);
     return;
   }
 
@@ -4900,6 +5041,8 @@ function fern_handlePointerDown(event) {
     fern_renderPointHandles();
     return;
   }
+
+  if (fern_selectPathSegment(event)) return;
 
   const currentSelected = fern_getSelectedElements();
   const clickedOnSelected = currentSelected.some((el) => {
@@ -4992,7 +5135,7 @@ function fern_handlePointerMove(event) {
   const pointerPoint = fern_getCanvasPoint(event);
   fern_setCoordinateReadout(pointerPoint.x, pointerPoint.y);
 
-  if (fernDrawPathMode && fernDrawingPathElement && fernPathBuildingPoints.length > 0) {
+  if (!fernPanState && fernCanvasAction === "draw-path" && fernDrawingPathElement && fernPathBuildingPoints.length > 0) {
     fern_updateDrawingPath(pointerPoint);
     return;
   }
@@ -5126,6 +5269,11 @@ function fern_handlePointerMove(event) {
     return;
   }
 
+  if (fernDragState.segment) {
+    fern_dragPathSegment(event);
+    return;
+  }
+
   const dx = fern_snap(pointerPoint.x - fernDragState.startX);
   const dy = fern_snap(pointerPoint.y - fernDragState.startY);
 
@@ -5206,44 +5354,21 @@ function fern_handlePointerUp(event) {
     }
   }
 
-  if (fernResizeState) {
-    fernResizeState = null;
+  const hadDrag = Boolean(fernResizeState || fernPointDragState || fernDragState);
+  const changed = Boolean(fernResizeState || fernPointDragState?.moved || fernDragState?.moved);
+  fernResizeState = null;
+  fernPointDragState = null;
+  fernDragState = null;
+  if (changed) {
     fern_commitHistory();
-    fern_autoSaveLocal();
     fern_renderInspector();
-    fern_renderSelectionBox();
   }
-
-  if (fernPointDragState) {
-    const wasMoved = fernPointDragState.moved;
-    fernPointDragState = null;
-    if (wasMoved) {
-      fern_commitHistory();
-      fern_autoSaveLocal();
-      fern_renderInspector();
-    }
-    fern_renderPointHandles();
-  }
-
-  if (fernDragState) {
-    const wasMoved = fernDragState.moved;
-    fernDragState = null;
-    if (wasMoved) {
-      fern_commitHistory();
-      fern_autoSaveLocal();
-      fern_renderInspector();
-    }
-    if (fernEditorMode === "select-node") {
-      fern_renderPointHandles();
-    } else {
-      fern_renderSelectionBox();
-    }
-  }
+  if (hadDrag) fern_renderSelectionBox();
 }
 
 function fern_handleDoubleClick(event) {
   if (!fernActiveSvg) return;
-  if (fernDrawPathMode) {
+  if (fernCanvasAction === "draw-path") {
     event.preventDefault();
     event.stopPropagation();
     fern_finishDrawPath(true);
@@ -6404,22 +6529,16 @@ async function fern_setupEditor() {
       return;
     }
 
-    if (event.key === "Enter" && fernDrawPathMode) {
+    if (event.key === "Enter" && fernCanvasAction === "draw-path") {
       event.preventDefault();
       fern_finishDrawPath(true);
       return;
     }
 
     if (event.key === "Escape") {
-      if (fernDrawPathMode) {
+      if (fernCanvasAction === "draw-path") {
         event.preventDefault();
         fern_finishDrawPath(false);
-        return;
-      }
-      if (fernAddNodeMode) {
-        fernAddNodeMode = false;
-        fernActiveSvg.classList.remove("is-adding-node");
-        fern_setEditorStatus("Add node cancelled.");
         return;
       }
       if (fernEditorMode === "select-node") {
@@ -6656,10 +6775,10 @@ async function fern_setupEditor() {
       fern_beginHistory();
       fern_setSelectedSegmentMode("curve");
       fern_commitHistory();
-    } else if (nodeActionButton && ["close", "open"].includes(nodeActionButton.dataset.nodeAction)) {
-      fern_setSelectedPathsClosed(nodeActionButton.dataset.nodeAction === "close");
+    } else if (nodeActionButton && ["add-line", "remove-line"].includes(nodeActionButton.dataset.nodeAction)) {
+      fern_setSelectedNodeConnection(nodeActionButton.dataset.nodeAction === "add-line");
     } else if (nodeActionButton && nodeActionButton.dataset.nodeAction === "add") {
-      fern_activateAddNodeMode();
+      fern_addSelectedSegmentNode();
     } else if (nodeActionButton && nodeActionButton.dataset.nodeAction === "merge") {
       fern_beginHistory();
       fern_mergeSelectedNodes();

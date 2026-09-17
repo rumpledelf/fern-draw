@@ -79,6 +79,19 @@ function fern_clearAutoSaveLocal() {
   } catch (_e) {}
 }
 
+function fern_hasUnsavedAutoSavedDraft(draftKey) {
+  try {
+    const payload = JSON.parse(localStorage.getItem(FERN_AUTOSAVE_KEY) || "null");
+    return Boolean(
+      payload?.content
+      && payload.draftKey === draftKey
+      && payload.content !== (payload.originalContent || payload.content)
+    );
+  } catch (_e) {
+    return false;
+  }
+}
+
 function fern_localDraftDiffersFromAccount(assetId, accountContent) {
   try {
     const payload = JSON.parse(localStorage.getItem(FERN_AUTOSAVE_KEY) || "null");
@@ -189,6 +202,8 @@ let fernTraceActiveAnchor = "c";
 let fernCurrentFileName = "untitled.svg";
 let fernAccountAssetId = null;
 let fernAccountProjectId = null;
+let fernSourceUrl = null;
+let fernSourceWritable = false;
 let fernPendingNamedSave = null;
 let fernLocalFileHandle = null;
 let fernOriginalSvgContent = FERN_EMPTY_SVG;
@@ -2233,6 +2248,106 @@ function fern_moveLayer(direction) {
   }
 }
 
+function fern_pathSubpaths(element) {
+  if (fern_getTagName(element) !== 'path') return [];
+  const pieces = [];
+  for (const token of fern_pathTokens(fern_absolutizePath(element.getAttribute('d') || ''))) {
+    if (token.type === 'command' && token.value === 'M') pieces.push([]);
+    if (pieces.length) pieces[pieces.length - 1].push(token);
+  }
+  return pieces.map(fern_serializePathTokens);
+}
+
+function fern_breakApartSelected() {
+  const selected = fern_getSelectedElements();
+  const replacements = selected.map(element => ({ element, pieces: fern_pathSubpaths(element) }))
+    .filter(({ pieces }) => pieces.length > 1);
+  if (!replacements.length) {
+    fern_setEditorStatus('Select a path containing separate subpaths to break apart. Groups use Ungroup.');
+    return;
+  }
+  fern_beginHistory();
+  const selection = [...selected];
+  let count = 0;
+  for (const { element, pieces } of replacements) {
+    const parts = pieces.map((d, index) => {
+      const part = element.cloneNode(true);
+      part.setAttribute('d', d);
+      part.removeAttribute('data-node-modes');
+      part.classList.remove('is-svg-selected');
+      if (index > 0) part.removeAttribute('id');
+      element.before(part);
+      return part;
+    });
+    selection.splice(selection.indexOf(element), 1, ...parts);
+    element.remove();
+    count += parts.length;
+  }
+  fern_selectElements(selection);
+  fern_commitHistory();
+  fern_setEditorStatus(`Broke apart into ${count} separately editable paths.`);
+}
+
+function fern_unionSelected() {
+  const elements = fern_getSelectedElements();
+  if (elements.length < 2 || !fernActiveSvg) return;
+  try {
+    const first = elements[0];
+    const parent = first.parentElement;
+    const parentMatrix = parent === fernActiveSvg ? new DOMMatrix() : fern_elementToCanvasMatrix(parent);
+    if (!parentMatrix) throw new Error("Cannot merge shapes without their canvas transform.");
+    const data = vectorUnion.run(p => {
+      const paths = elements.map(element => {
+        if (element.closest('clipPath, mask, [clip-path], [mask]')) {
+          throw new Error("Union needs unclipped shapes.");
+        }
+        const tag = element.tagName.toLowerCase();
+        const number = name => Number(element.getAttribute(name) || 0);
+        let path;
+        if (tag === 'path') {
+          path = new p.CompoundPath({ pathData: element.getAttribute('d'), insert: false });
+          if (!path.children.length || path.children.some(child => !child.closed)) throw new Error("Close the selected paths before merging.");
+        } else if (tag === 'circle' || tag === 'ellipse') {
+          const rx = number(tag === 'circle' ? 'r' : 'rx');
+          const ry = number(tag === 'circle' ? 'r' : 'ry');
+          path = new p.Path.Ellipse({ rectangle: [number('cx') - rx, number('cy') - ry, rx * 2, ry * 2], insert: false });
+        } else if (tag === 'rect') {
+          const rx = Math.min(number('width') / 2, element.hasAttribute('rx') ? number('rx') : number('ry'));
+          const ry = Math.min(number('height') / 2, element.hasAttribute('ry') ? number('ry') : number('rx'));
+          path = new p.Path.Rectangle({ rectangle: [number('x'), number('y'), number('width'), number('height')], radius: [rx, ry], insert: false });
+        } else if (tag === 'polygon') {
+          path = new p.Path({ segments: [...element.points].map(point => [point.x, point.y]), closed: true, insert: false });
+        } else {
+          throw new Error("Select closed shapes or paths; ungroup groups before merging.");
+        }
+        path.fillRule = fern_getPresentationAttr(element, 'fill-rule') || 'nonzero';
+        const canvasMatrix = fern_elementToCanvasMatrix(element);
+        if (!canvasMatrix) throw new Error("Cannot read a selected shape's transform.");
+        const matrix = parentMatrix.inverse().multiply(canvasMatrix);
+        path.transform(new p.Matrix(matrix.a, matrix.b, matrix.c, matrix.d, matrix.e, matrix.f));
+        return path;
+      });
+      return vectorUnion.unite(paths).pathData;
+    });
+    if (!data) throw new Error("These shapes have no area to merge.");
+    const merged = document.createElementNS(FERN_SVG_NS, 'path');
+    for (const name of ['fill', 'stroke', 'stroke-width', 'stroke-linecap', 'stroke-linejoin', 'stroke-miterlimit', 'stroke-dasharray', 'stroke-dashoffset', 'fill-opacity', 'stroke-opacity', 'opacity', 'vector-effect', 'filter']) {
+      const value = fern_getPresentationAttr(first, name);
+      if (value) merged.setAttribute(name, value);
+    }
+    merged.setAttribute('d', data);
+    merged.setAttribute('fill-rule', 'nonzero');
+    if (first.id) merged.id = first.id;
+    // Keep the first shape's place in its layer, with transforms baked into geometry.
+    first.before(merged);
+    elements.forEach(element => element.remove());
+    fern_selectElements([merged]);
+    fern_setEditorStatus('Shapes merged. The first selected shape supplies the fill and outline.');
+  } catch (error) {
+    fern_setEditorStatus(error.message || 'Unable to merge these shapes.');
+  }
+}
+
 function fern_groupSelected() {
   if (!fernSelectedElement || !fernActiveSvg) {
     return;
@@ -2300,6 +2415,13 @@ function fern_transformSelected(action) {
   fern_renderPointHandles();
   fern_autoSaveLocal();
   fern_setEditorStatus(`Applied ${action.replace("-", " ")}.`);
+}
+
+function fern_styleClipboardControls() {
+  return `<div class="chip-row">
+    <button class="chip-btn" type="button" data-action="copy-style" title="Ctrl/Cmd+Shift+C">Copy style</button>
+    <button class="chip-btn" type="button" data-action="paste-style" title="Ctrl/Cmd+Shift+V">Paste style</button>
+  </div>`;
 }
 
 function fern_renderInspector() {
@@ -2375,19 +2497,17 @@ function fern_renderInspector() {
         <button class="chip-btn chip-btn-icon" type="button" data-layer="bottom" title="Send to Back" aria-label="Send to Back">
           <span class="material-icons" aria-hidden="true">flip_to_back</span>
         </button>
+        <button class="chip-btn" type="button" data-group-action="union" title="Merge closed shapes into one editable outline; use the first selected shape’s style">Union</button>
         <button class="chip-btn chip-btn-icon" type="button" data-group-action="group" title="Group into &lt;g&gt;" aria-label="Group into &lt;g&gt;">
           <span class="material-icons" aria-hidden="true">layers</span>
         </button>
-        <button class="chip-btn chip-btn-icon" type="button" data-group-action="ungroup" title="Ungroup &lt;g&gt;" aria-label="Ungroup &lt;g&gt;">
+        <button class="chip-btn" type="button" data-group-action="break-apart" title="Split each subpath into its own editable path. Inner contours become separate filled shapes.">Break apart</button>
+      <button class="chip-btn chip-btn-icon" type="button" data-group-action="ungroup" title="Ungroup &lt;g&gt;" aria-label="Ungroup &lt;g&gt;">
           <span class="material-icons" aria-hidden="true">layers_clear</span>
         </button>
       </div>
-
-
-
-
-
       <div class="field-label" style="margin-top: 0.8rem;">Fill &amp; Stroke</div>
+      ${fern_styleClipboardControls()}
       <div class="inspector-color-row">
         <div class="color-picker-group">
           <span class="subgroup-title">Fill</span>
@@ -2480,6 +2600,7 @@ function fern_renderInspector() {
   if (!fernSelectedElement) {
     const viewBox = fern_getViewBox();
     const hasBackdrop = Boolean(fernTraceBackdrop.url && fernTraceBackdrop.visible !== false);
+    const componentFields = fern_componentInspectorFields(fernActiveSvg, "document");
     inspector.innerHTML = `
       <div class="field-label">Document &amp; Canvas</div>
       <div class="sidebar-action-line">
@@ -2498,6 +2619,7 @@ function fern_renderInspector() {
           </div>
         </div>
       ` : ""}
+      ${componentFields}
       <p class="svg-editor-empty">Select a shape to inspect properties.</p>
     `;
     return;
@@ -2527,6 +2649,7 @@ function fern_renderInspector() {
   const linejoin = fern_getPresentationAttr(fernSelectedElement, "stroke-linejoin", "miter");
   const dasharray = fern_getPresentationAttr(fernSelectedElement, "stroke-dasharray");
   const blurAmount = fern_getBlurAmount(fernSelectedElement);
+  const componentFields = fern_componentInspectorFields(fernSelectedElement, "selection");
 
   let geomFields = "";
   if (tag === "rect") {
@@ -2571,6 +2694,8 @@ function fern_renderInspector() {
       <span class="element-tag-badge">&lt;${tag}&gt;</span>
     </div>
 
+    ${componentFields}
+
     <div class="field-label" style="margin-top: 0.6rem;">Actions</div>
     <div class="chip-row">
       <button class="chip-btn chip-btn-icon" type="button" data-action="cut" title="Cut selection" aria-label="Cut selection">
@@ -2607,6 +2732,7 @@ function fern_renderInspector() {
       <button class="chip-btn chip-btn-icon" type="button" data-group-action="group" title="Group into &lt;g&gt;" aria-label="Group into &lt;g&gt;">
         <span class="material-icons" aria-hidden="true">layers</span>
       </button>
+      <button class="chip-btn" type="button" data-group-action="break-apart" title="Split each subpath into its own editable path. Inner contours become separate filled shapes.">Break apart</button>
       <button class="chip-btn chip-btn-icon" type="button" data-group-action="ungroup" title="Ungroup &lt;g&gt;" aria-label="Ungroup &lt;g&gt;">
         <span class="material-icons" aria-hidden="true">layers_clear</span>
       </button>
@@ -2615,6 +2741,7 @@ function fern_renderInspector() {
 
 
     <div class="field-label" style="margin-top: 0.8rem;">Fill &amp; Stroke</div>
+      ${fern_styleClipboardControls()}
     <div class="inspector-color-row">
       <div class="color-picker-group">
         <span class="subgroup-title">Fill</span>
@@ -2709,6 +2836,33 @@ function fern_renderInspector() {
   `;
 }
 
+function fern_componentInspectorFields(element, target) {
+  if (!element) return "";
+  const documentFields = [
+    ["data-component-id", "Component ID", "text"],
+    ["data-component-label", "Label", "text"],
+    ["data-component-category", "Category", "text"],
+    ["data-component-version", "Version", "number"],
+  ];
+  const selectionFields = [
+    ["id", "Element ID", "text"],
+    ["data-part", "Part", "text"],
+    ["data-color-regions", "Color regions", "text"],
+    ["data-attachment-point", "Attachment point", "text"],
+  ];
+  const fields = target === "document" ? documentFields : selectionFields;
+  const hasComponentDocument = Boolean(fernActiveSvg?.hasAttribute("data-component-id"));
+  const hasComponentSelection = fields.some(([attribute]) => element.hasAttribute(attribute));
+  if (target === "document" && !hasComponentDocument) return "";
+  if (target === "selection" && !hasComponentDocument && !hasComponentSelection) return "";
+  const controls = fields.map(([attribute, label, type]) => {
+    const value = fern_escapeHtml(element.getAttribute(attribute) || "");
+    const minimum = type === "number" ? ' min="1" step="1"' : "";
+    return `<label><span>${label}</span><input class="select-pill" type="${type}" data-component-attr="${attribute}" data-component-target="${target}" value="${value}"${minimum}></label>`;
+  }).join("");
+  return `<div class="field-label" style="margin-top: 0.8rem;">${target === "document" ? "Artwork component" : "Component structure"}</div><div class="inspector-grid">${controls}</div>`;
+}
+
 function fern_generatePolygonPoints(sides, cx = 50, cy = 50, r = 28) {
   const points = [];
   for (let i = 0; i < sides; i += 1) {
@@ -2783,6 +2937,18 @@ function fern_updateSelectedAttr(event) {
   } else {
     fern_renderSelectionBox(targets);
   }
+  fern_commitHistory();
+}
+
+function fern_updateComponentAttr(event) {
+  const input = event.target.closest("[data-component-attr]");
+  if (!input || !fernActiveSvg) return;
+  const element = input.dataset.componentTarget === "document" ? fernActiveSvg : fernSelectedElement;
+  if (!element) return;
+  fern_beginHistory();
+  const value = input.value.trim();
+  if (value) element.setAttribute(input.dataset.componentAttr, value);
+  else element.removeAttribute(input.dataset.componentAttr);
   fern_commitHistory();
 }
 
@@ -4768,23 +4934,121 @@ function fern_alignSelected(mode, nodesOnly = false) {
   fern_arrangeSelection(mode, "x", null, nodesOnly);
 }
 
+const FERN_COPY_STYLE_ATTRIBUTES = ['fill', 'fill-opacity', 'fill-rule', 'stroke', 'stroke-opacity', 'stroke-width', 'stroke-linecap', 'stroke-linejoin', 'stroke-miterlimit', 'stroke-dasharray', 'stroke-dashoffset', 'opacity', 'paint-order'];
+let fernStyleClipboard = null;
+let fernPasteSequence = 0;
+
+function fern_readShapeStyle(element) {
+  return Object.fromEntries(FERN_COPY_STYLE_ATTRIBUTES.map(name => [name, fern_getPresentationAttr(element, name).replace(/url\(\s*["']?[^)]*?#([^\s"')]+)["']?\s*\)/g, 'url(#$1)')]));
+}
+
+function fern_clipboardSvg(elements) {
+  const root = document.createElementNS(FERN_SVG_NS, 'svg');
+  root.setAttribute('xmlns', FERN_SVG_NS);
+  for (const defs of fernActiveSvg.querySelectorAll('defs')) root.append(defs.cloneNode(true));
+  for (const element of elements) {
+    const clone = element.cloneNode(true);
+    const sources = [element, ...element.querySelectorAll('*')];
+    const copies = [clone, ...clone.querySelectorAll('*')];
+    copies.forEach((copy, index) => {
+      copy.classList.remove('is-svg-selected');
+      for (const [name, value] of Object.entries(fern_readShapeStyle(sources[index]))) {
+        if (value) fern_setEditableAttr(copy, name, value);
+      }
+    });
+    // Pasting at the document root must preserve placement inside transformed groups.
+    const matrix = fern_elementToCanvasMatrix(element);
+    if (matrix) clone.setAttribute('transform', `matrix(${matrix.a} ${matrix.b} ${matrix.c} ${matrix.d} ${matrix.e} ${matrix.f})`);
+    root.append(clone);
+  }
+  return root;
+}
+
+function fern_prepareClipboardSvg(content) {
+  const wrapped = /<svg\b/i.test(content) ? content : `<svg xmlns="${FERN_SVG_NS}">${content}</svg>`;
+  const parsed = new DOMParser().parseFromString(wrapped, 'image/svg+xml');
+  if (parsed.querySelector('parsererror') || parsed.documentElement.localName !== 'svg') throw new Error('The clipboard does not contain SVG shapes.');
+  const root = fern_sanitizeSvg(document.importNode(parsed.documentElement, true));
+  const prefix = `fern-paste-${Date.now()}-${++fernPasteSequence}-`;
+  const ids = new Map([...root.querySelectorAll('[id]')].map(element => [element.id, prefix + element.id]));
+  for (const element of root.querySelectorAll('*')) {
+    for (const attribute of [...element.attributes]) {
+      let value = attribute.value.replace(/url\(\s*["']?[^)]*?#([^\s"')]+)["']?\s*\)/g, (match, id) => ids.has(id) ? `url(#${ids.get(id)})` : match);
+      if (attribute.name === 'id') value = ids.get(value);
+      if ((attribute.name === 'href' || attribute.name === 'xlink:href') && ids.has(value.slice(1))) value = '#' + ids.get(value.slice(1));
+      element.setAttribute(attribute.name, value);
+    }
+  }
+  return root;
+}
+
 function fern_copySelected() {
   const elements = fern_getSelectedElements();
-  if (elements.length === 0 || !fernActiveSvg) {
-    fern_setEditorStatus("Select shapes to copy.");
+  if (!elements.length || !fernActiveSvg) {
+    fern_setEditorStatus('Select shapes to copy.');
     return false;
   }
-  const xml = elements.map((el) => {
-    const clone = el.cloneNode(true);
-    clone.classList.remove("is-svg-selected");
-    return clone.outerHTML;
-  }).join("\n");
-  fernClipboard = xml;
-  if (navigator.clipboard && navigator.clipboard.writeText) {
-    navigator.clipboard.writeText(xml).catch(() => {});
-  }
-  fern_setEditorStatus(`Copied ${elements.length} item(s) to clipboard.`);
+  fernClipboard = fern_clipboardSvg(elements).outerHTML;
+  navigator.clipboard?.writeText?.(fernClipboard).catch(() => {});
+  fern_setEditorStatus(`Copied ${elements.length} shape(s).`);
   return true;
+}
+
+async function fern_pasteClipboard(content = null) {
+  if (!fernActiveSvg) return;
+  if (content === null) {
+    content = fernClipboard;
+    if (!content) {
+      try { content = await navigator.clipboard?.readText?.(); } catch (_error) {}
+    }
+  }
+  if (!content) { fern_setEditorStatus('Copy a shape first, then paste.'); return; }
+  try {
+    const root = fern_prepareClipboardSvg(content);
+    const elements = [...root.children].filter(element => !['defs', 'title', 'desc', 'metadata', 'style'].includes(element.localName));
+    if (!elements.length) throw new Error('The clipboard does not contain SVG shapes.');
+    fern_beginHistory();
+    for (const defs of [...root.children].filter(element => element.localName === 'defs')) fern_ensureDefs().append(...defs.children);
+    for (const element of elements) {
+      fernActiveSvg.append(element);
+      fern_translateElementBy(element, 6, 6);
+    }
+    fern_selectElements(elements);
+    fern_commitHistory();
+    fern_setEditorStatus(`Pasted ${elements.length} shape(s).`);
+  } catch (error) {
+    fern_setEditorStatus(error.message || 'Unable to paste these shapes.');
+  }
+}
+
+function fern_copyStyle() {
+  const element = fern_getSelectedElements()[0];
+  if (!element) { fern_setEditorStatus('Select a shape to copy its style.'); return; }
+  const root = fern_clipboardSvg([element]);
+  const carrier = root.lastElementChild;
+  const style = fern_readShapeStyle(carrier);
+  fernStyleClipboard = { style, defs: [...root.querySelectorAll('defs')].map(defs => defs.outerHTML).join('') };
+  fern_setEditorStatus('Style copied. Select other shapes and choose Paste style.');
+}
+
+function fern_pasteStyle() {
+  const elements = fern_getSelectedElements();
+  if (!fernStyleClipboard) { fern_setEditorStatus('Copy a shape’s style first.'); return; }
+  if (!elements.length) { fern_setEditorStatus('Select shapes to apply the copied style.'); return; }
+  const carrier = document.createElementNS(FERN_SVG_NS, 'path');
+  for (const [name, value] of Object.entries(fernStyleClipboard.style)) if (value) carrier.setAttribute(name, value);
+  const root = fern_prepareClipboardSvg(fernStyleClipboard.defs + carrier.outerHTML);
+  const style = fern_readShapeStyle(root.lastElementChild);
+  fern_beginHistory();
+  for (const defs of [...root.children].filter(element => element.localName === 'defs')) fern_ensureDefs().append(...defs.children);
+  for (const element of elements) {
+    const targets = element.localName === 'g' ? [element, ...element.querySelectorAll('*')].filter(child => !child.closest('defs')) : [element];
+    for (const target of targets) for (const [name, value] of Object.entries(style)) if (value) fern_setEditableAttr(target, name, value);
+  }
+  fern_renderInspector();
+  fern_renderPointHandles();
+  fern_commitHistory();
+  fern_setEditorStatus(`Applied copied style to ${elements.length} shape(s).`);
 }
 
 function fern_cutSelected() {
@@ -4904,7 +5168,9 @@ function fern_ungroupSelected() {
     fern_autoSaveLocal();
     fern_setEditorStatus("Ungrouped.");
   } else {
-    fern_setEditorStatus("Select a group (<g>) to ungroup.");
+    fern_setEditorStatus(elements.some(element => fern_pathSubpaths(element).length > 1)
+      ? 'This is a compound path. Use Break apart to edit its pieces separately.'
+      : 'Select a group (<g>) to ungroup.');
   }
 }
 
@@ -5617,11 +5883,47 @@ async function fern_loadAccountAssetFromUrl() {
   return true;
 }
 
+async function fern_loadSourceFromUrl() {
+  const requested = new URLSearchParams(window.location.search).get("source");
+  if (!requested) return false;
+  const source = new URL(requested, window.location.href);
+  if (!["http:", "https:"].includes(source.protocol)) {
+    throw new Error("Draw source URLs must use HTTP or HTTPS.");
+  }
+  const fileName = decodeURIComponent(source.pathname.split("/").pop() || "untitled.svg");
+  fernSourceUrl = source.href;
+  const draftKey = `source-${source.href}`;
+  fern_setSessionDraftKey(draftKey);
+  const restoredDraft = fern_hasUnsavedAutoSavedDraft(draftKey) && fern_loadAutoSavedDraft();
+  let response;
+  try {
+    response = await fetch(source.href, { headers: { Accept: "image/svg+xml" } });
+    if (!response.ok) throw new Error(`Could not open SVG source (${response.status}).`);
+  } catch (error) {
+    if (restoredDraft) {
+      fern_setEditorStatus(`Restored unsaved ${fileName}; its source is temporarily unavailable.`);
+      return true;
+    }
+    throw error;
+  }
+  fernSourceWritable = response.headers.get("X-Fern-Draw-Writable") === "true";
+  if (restoredDraft) {
+    fern_setEditorStatus(`Restored unsaved changes to ${fileName}. Use Revert to reopen its source.`);
+    return true;
+  }
+  const content = await response.text();
+  fern_loadLocalSvg(content, fileName);
+  fern_setEditorStatus(`Opened ${fileName} from its source link.`);
+  return true;
+}
+
 function fern_newSvg() {
   if (!fern_confirmDiscardChanges()) {
     return;
   }
   fern_clearAutoSaveLocal();
+  fernSourceUrl = null;
+  fernSourceWritable = false;
   fern_setSessionDraftKey();
   fern_loadLocalSvg(FERN_EMPTY_SVG, "untitled.svg");
   fern_setEditorStatus("New drawing.");
@@ -5638,6 +5940,8 @@ async function fern_openSvg() {
   if (!fern_confirmDiscardChanges()) {
     return;
   }
+  fernSourceUrl = null;
+  fernSourceWritable = false;
   if ("showOpenFilePicker" in window) {
     try {
       const [fernHandle] = await window.showOpenFilePicker({
@@ -6057,6 +6361,22 @@ async function fern_saveSvg(saveAs = false) {
   }
 
   const fernContent = fern_cleanForSave();
+  if (!saveAs && fernSourceUrl && fernSourceWritable) {
+    try {
+      const response = await fetch(fernSourceUrl, {
+        method: "PUT",
+        headers: { "Content-Type": "image/svg+xml;charset=utf-8" },
+        body: fernContent,
+      });
+      if (!response.ok) throw new Error((await response.text()) || `Save failed (${response.status}).`);
+      fernOriginalSvgContent = fernContent;
+      fern_autoSaveLocal();
+      fern_setEditorStatus(`Saved ${fernCurrentFileName} to its source.`);
+    } catch (fernError) {
+      fern_setEditorStatus(fernError.message || "Could not save the SVG to its source.");
+    }
+    return;
+  }
   let fernHandle = saveAs ? null : fernLocalFileHandle;
   if (!fernHandle && "showSaveFilePicker" in window) {
     try {
@@ -6199,7 +6519,12 @@ async function fern_saveSvgToAccount(saveAs = false, retryingFromBrokenLink = fa
 
 async function fern_revertSvg() {
   try {
-    if (fernLocalFileHandle) {
+    if (fernSourceUrl) {
+      const response = await fetch(fernSourceUrl, { headers: { Accept: "image/svg+xml" } });
+      if (!response.ok) throw new Error(`Could not reopen SVG source (${response.status}).`);
+      fern_loadLocalSvg(await response.text(), fernCurrentFileName);
+      fernSourceWritable = response.headers.get("X-Fern-Draw-Writable") === "true";
+    } else if (fernLocalFileHandle) {
       const file = await fernLocalFileHandle.getFile();
       fern_loadLocalSvg(await fern_readLocalFile(file), file.name, fernLocalFileHandle);
     } else if (fernAccountAssetId) {
@@ -6368,10 +6693,12 @@ async function fern_setupEditor() {
   const inspector = fernEditor.querySelector("[data-inspector]");
   if (inspector) {
     inspector.addEventListener("input", (event) => {
+      fern_updateComponentAttr(event);
       fern_updateSelectedAttr(event);
       fern_updateColorAttr(event);
     });
     inspector.addEventListener("change", (event) => {
+      fern_updateComponentAttr(event);
       fern_updateSelectedAttr(event);
       fern_updateColorAttr(event);
     });
@@ -6602,6 +6929,12 @@ async function fern_setupEditor() {
       fern_redo();
       return;
     }
+    if (modifier && event.shiftKey && ['c', 'v'].includes(event.key.toLowerCase())) {
+      event.preventDefault();
+      if (event.key.toLowerCase() === 'c') fern_copyStyle();
+      else fern_pasteStyle();
+      return;
+    }
     if (modifier && event.key.toLowerCase() === "c") {
       if (fern_getSelectedElements().length > 0) {
         event.preventDefault();
@@ -6743,7 +7076,11 @@ async function fern_setupEditor() {
       fern_commitHistory();
     } else if (groupButton) {
       fern_beginHistory();
-      if (groupButton.dataset.groupAction === "group") {
+      if (groupButton.dataset.groupAction === "union") {
+        fern_unionSelected();
+      } else if (groupButton.dataset.groupAction === "break-apart") {
+        fern_breakApartSelected();
+      } else if (groupButton.dataset.groupAction === "group") {
         fern_groupSelected();
       } else if (groupButton.dataset.groupAction === "ungroup") {
         fern_ungroupSelected();
@@ -6911,6 +7248,12 @@ async function fern_setupEditor() {
     } else if (actionButton && actionButton.dataset.action === "copy") {
       fern_closeAllMenus();
       fern_copySelected();
+    } else if (actionButton && actionButton.dataset.action === "copy-style") {
+      fern_closeAllMenus();
+      fern_copyStyle();
+    } else if (actionButton && actionButton.dataset.action === "paste-style") {
+      fern_closeAllMenus();
+      fern_pasteStyle();
     } else if (actionButton && actionButton.dataset.action === "paste") {
       fern_closeAllMenus();
       fern_pasteClipboard();
@@ -6935,11 +7278,16 @@ async function fern_setupEditor() {
   window.addEventListener("resize", fern_updateCanvasStageSize);
   window.addEventListener("beforeunload", fern_autoSaveLocal);
 
-  const requestedAssetId = new URLSearchParams(window.location.search).get("asset");
-  const loadedAccountAsset = requestedAssetId ? await fern_loadAccountAssetFromUrl().catch(() => false) : false;
-  const restoredDraft = loadedAccountAsset ? false : fern_loadAutoSavedDraft(requestedAssetId);
-  const recoveredDraft = loadedAccountAsset || restoredDraft ? false : await fern_loadRecoveredDraft(requestedAssetId);
-  if (!loadedAccountAsset && !restoredDraft && !recoveredDraft) {
+  const parameters = new URLSearchParams(window.location.search);
+  const requestedAssetId = parameters.get("asset");
+  const loadedSource = parameters.get("source") ? await fern_loadSourceFromUrl().catch((error) => {
+    fern_setEditorStatus(error.message || "Could not open the SVG source.");
+    return false;
+  }) : false;
+  const loadedAccountAsset = loadedSource ? false : requestedAssetId ? await fern_loadAccountAssetFromUrl().catch(() => false) : false;
+  const restoredDraft = loadedSource || loadedAccountAsset ? false : fern_loadAutoSavedDraft(requestedAssetId);
+  const recoveredDraft = loadedSource || loadedAccountAsset || restoredDraft ? false : await fern_loadRecoveredDraft(requestedAssetId);
+  if (!loadedSource && !loadedAccountAsset && !restoredDraft && !recoveredDraft) {
     fern_setSessionDraftKey();
     fern_loadLocalSvg(FERN_EMPTY_SVG, "untitled.svg");
     fernZoomLevel = FERN_DEFAULT_BLANK_ZOOM;

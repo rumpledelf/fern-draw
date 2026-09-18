@@ -503,10 +503,10 @@ function fern_setEditorMode(mode) {
     }
     if (fernSelectedElement) {
       fern_renderPointHandles();
-      fern_setEditorStatus("Node select mode: click nodes to edit or drag a box to select multiple nodes.");
+      fern_setEditorStatus("Node select mode: click nodes to edit or drag a box to select multiple nodes. Hold Alt/Option while dragging a node to snap to another node.");
     } else {
       fern_clearHandles();
-      fern_setEditorStatus("Node select mode: click a shape on canvas to edit its path nodes.");
+      fern_setEditorStatus("Node select mode: click a shape on canvas to edit its path nodes. Alt/Option-drag snaps a node to another node.");
     }
   } else {
     if (fernLastSelectedShape && fernActiveSvg.contains(fernLastSelectedShape)) {
@@ -1124,11 +1124,11 @@ function fern_elementToCanvasMatrix(element) {
   return null;
 }
 
-function fern_canvasDeltaToElement(element, dx, dy) {
+function fern_canvasDeltaToElement(element, dx, dy, includeElementTransform = false) {
   try {
-    const parent = element?.parentElement;
-    if (parent && parent !== fernActiveSvg) {
-      const matrix = fern_elementToCanvasMatrix(parent);
+    const coordinateSpace = includeElementTransform ? element : element?.parentElement;
+    if (coordinateSpace && coordinateSpace !== fernActiveSvg) {
+      const matrix = fern_elementToCanvasMatrix(coordinateSpace);
       if (matrix) {
         const inv = matrix.inverse();
         const localDx = inv.a * dx + inv.c * dy;
@@ -2288,6 +2288,30 @@ function fern_breakApartSelected() {
   fern_setEditorStatus(`Broke apart into ${count} separately editable paths.`);
 }
 
+function fern_shapePathGeometry(p, element) {
+  const tag = element.tagName.toLowerCase();
+  const number = name => Number(element.getAttribute(name) || 0);
+  let path;
+  if (tag === 'path') {
+    path = new p.CompoundPath({ pathData: element.getAttribute('d'), insert: false });
+  } else if (tag === 'circle' || tag === 'ellipse') {
+    const rx = number(tag === 'circle' ? 'r' : 'rx');
+    const ry = number(tag === 'circle' ? 'r' : 'ry');
+    path = new p.Path.Ellipse({ rectangle: [number('cx') - rx, number('cy') - ry, rx * 2, ry * 2], insert: false });
+  } else if (tag === 'rect') {
+    const rx = Math.min(number('width') / 2, element.hasAttribute('rx') ? number('rx') : number('ry'));
+    const ry = Math.min(number('height') / 2, element.hasAttribute('ry') ? number('ry') : number('rx'));
+    path = new p.Path.Rectangle({ rectangle: [number('x'), number('y'), number('width'), number('height')], radius: [rx, ry], insert: false });
+  } else if (tag === 'polygon' || tag === 'polyline') {
+    path = new p.Path({ segments: [...element.points].map(point => [point.x, point.y]), closed: tag === 'polygon', insert: false });
+  } else if (tag === 'line') {
+    path = new p.Path({ segments: [[number('x1'), number('y1')], [number('x2'), number('y2')]], insert: false });
+  } else {
+    throw new Error("This operation needs vector shapes. Text cannot be baked into paths without font outlines.");
+  }
+  return path;
+}
+
 function fern_unionSelected() {
   const elements = fern_getSelectedElements();
   if (elements.length < 2 || !fernActiveSvg) return;
@@ -2301,25 +2325,9 @@ function fern_unionSelected() {
         if (element.closest('clipPath, mask, [clip-path], [mask]')) {
           throw new Error("Union needs unclipped shapes.");
         }
-        const tag = element.tagName.toLowerCase();
-        const number = name => Number(element.getAttribute(name) || 0);
-        let path;
-        if (tag === 'path') {
-          path = new p.CompoundPath({ pathData: element.getAttribute('d'), insert: false });
-          if (!path.children.length || path.children.some(child => !child.closed)) throw new Error("Close the selected paths before merging.");
-        } else if (tag === 'circle' || tag === 'ellipse') {
-          const rx = number(tag === 'circle' ? 'r' : 'rx');
-          const ry = number(tag === 'circle' ? 'r' : 'ry');
-          path = new p.Path.Ellipse({ rectangle: [number('cx') - rx, number('cy') - ry, rx * 2, ry * 2], insert: false });
-        } else if (tag === 'rect') {
-          const rx = Math.min(number('width') / 2, element.hasAttribute('rx') ? number('rx') : number('ry'));
-          const ry = Math.min(number('height') / 2, element.hasAttribute('ry') ? number('ry') : number('rx'));
-          path = new p.Path.Rectangle({ rectangle: [number('x'), number('y'), number('width'), number('height')], radius: [rx, ry], insert: false });
-        } else if (tag === 'polygon') {
-          path = new p.Path({ segments: [...element.points].map(point => [point.x, point.y]), closed: true, insert: false });
-        } else {
-          throw new Error("Select closed shapes or paths; ungroup groups before merging.");
-        }
+        const path = fern_shapePathGeometry(p, element);
+        const contours = path.children || [path];
+        if (!contours.length || contours.some(child => !child.closed)) throw new Error("Close the selected paths before merging.");
         path.fillRule = fern_getPresentationAttr(element, 'fill-rule') || 'nonzero';
         const canvasMatrix = fern_elementToCanvasMatrix(element);
         if (!canvasMatrix) throw new Error("Cannot read a selected shape's transform.");
@@ -2385,8 +2393,96 @@ function fern_getElementCenter(element) {
   return { cx: viewBox.cx, cy: viewBox.cy };
 }
 
+function fern_bakeShapeGeometry(p, element, matrix) {
+  const tag = fern_getTagName(element);
+  const axisAligned = Math.abs(matrix.b) < 1e-10 && Math.abs(matrix.c) < 1e-10;
+  let baked = element.cloneNode(true);
+  if (axisAligned && ["rect", "circle", "ellipse"].includes(tag) &&
+      (tag !== "circle" || Math.abs(Math.abs(matrix.a) - Math.abs(matrix.d)) < 1e-10)) {
+    const original = fern_getOriginalAttrs(element);
+    fern_scaleElement(baked, matrix.a, matrix.d, 0, 0, original);
+    if (tag === "rect") {
+      for (const [key, scale] of [["rx", matrix.a], ["ry", matrix.d]]) {
+        if (element.hasAttribute(key)) fern_setNumericAttr(baked, key, Math.abs(fern_numericAttr(element, key) * scale));
+      }
+    }
+    baked.removeAttribute("transform");
+    fern_moveElement(baked, matrix.e, matrix.f, { ...fern_getOriginalAttrs(baked), transform: "" });
+  } else if (["polygon", "polyline", "line"].includes(tag)) {
+    const point = (x, y) => new DOMPoint(x, y).matrixTransform(matrix);
+    if (tag === "line") {
+      for (const suffix of ["1", "2"]) {
+        const moved = point(fern_numericAttr(element, "x" + suffix), fern_numericAttr(element, "y" + suffix));
+        fern_setNumericAttr(baked, "x" + suffix, moved.x); fern_setNumericAttr(baked, "y" + suffix, moved.y);
+      }
+    } else {
+      baked.setAttribute("points", [...element.points].map(value => {
+        const moved = point(value.x, value.y);
+        return `${fern_formatNumber(moved.x)},${fern_formatNumber(moved.y)}`;
+      }).join(" "));
+    }
+  } else {
+    const geometry = fern_shapePathGeometry(p, element);
+    geometry.transform(new p.Matrix(matrix.a, matrix.b, matrix.c, matrix.d, matrix.e, matrix.f));
+    if (tag !== "path") {
+      baked = document.createElementNS(FERN_SVG_NS, "path");
+      const geometryAttributes = new Set(["x", "y", "width", "height", "rx", "ry", "cx", "cy", "r"]);
+      for (const attr of element.attributes) if (!geometryAttributes.has(attr.name)) baked.setAttribute(attr.name, attr.value);
+      for (const child of element.childNodes) baked.append(child.cloneNode(true));
+    }
+    baked.setAttribute("d", fern_absolutizePath(geometry.pathData));
+    baked.removeAttribute("data-node-modes");
+  }
+  baked.removeAttribute("transform");
+  // Imported uniform scaling must retain its visible stroke after baking.
+  const scale = Math.sqrt(Math.abs(matrix.a * matrix.d - matrix.b * matrix.c));
+  if (Math.abs(scale - 1) > 1e-10 && fern_getPresentationAttr(element, "vector-effect") !== "non-scaling-stroke") {
+    const width = Number.parseFloat(fern_getPresentationAttr(element, "stroke-width") || "1");
+    fern_setEditableAttr(baked, "stroke-width", fern_formatNumber(width * scale));
+  }
+  return baked;
+}
+
+function fern_flipSelected(action) {
+  const selected = fern_getSelectedElements();
+  const roots = selected.filter(element => !selected.some(parent => parent !== element && parent.contains(element)));
+  const box = fern_getCombinedBoundingBox(roots);
+  if (!box) return;
+  const horizontal = action === "flip-h";
+  const flip = horizontal ? new DOMMatrix([-1, 0, 0, 1, box.x * 2 + box.width, 0])
+    : new DOMMatrix([1, 0, 0, -1, 0, box.y * 2 + box.height]);
+  try {
+    // Prepare every replacement first, so unsupported content leaves the drawing intact.
+    const replacements = vectorUnion.run(p => roots.map(root => {
+      const parentMatrix = root.parentElement === fernActiveSvg ? new DOMMatrix() : fern_elementToCanvasMatrix(root.parentElement);
+      const destination = new DOMMatrix().multiply(parentMatrix).inverse().multiply(flip);
+      function bake(element) {
+        if (fern_getTagName(element) === "g") {
+          const group = element.cloneNode(false); group.removeAttribute("transform");
+          for (const child of element.childNodes) {
+            if (child.nodeType !== 1 || ["title", "desc", "metadata", "defs"].includes(fern_getTagName(child))) group.append(child.cloneNode(true));
+            else group.append(bake(child));
+          }
+          return group;
+        }
+        return fern_bakeShapeGeometry(p, element, destination.multiply(fern_elementToCanvasMatrix(element)));
+      }
+      return { root, baked: bake(root) };
+    }));
+    for (const { root, baked } of replacements) root.replaceWith(baked);
+    fernSelectedPointIndex = null; fernSelectedNodeIndices = new Set();
+    fern_selectElements(replacements.map(({ baked }) => baked));
+    fern_renderInspector(); fern_renderPointHandles(); fern_autoSaveLocal();
+    fern_setEditorStatus(`Flipped ${horizontal ? "horizontally" : "vertically"}. Geometry updated without a mirror transform.`);
+  } catch (error) { fern_setEditorStatus(error.message || "Unable to flip this selection."); }
+}
+
 function fern_transformSelected(action) {
   if (!fernSelectedElement || !fernActiveSvg) {
+    return;
+  }
+  if (action === "flip-h" || action === "flip-v") {
+    fern_flipSelected(action);
     return;
   }
   const { cx, cy } = fern_getElementCenter(fernSelectedElement);
@@ -2394,11 +2490,7 @@ function fern_transformSelected(action) {
   const cyF = fern_formatNumber(cy);
   let transformStr = "";
 
-  if (action === "flip-h") {
-    transformStr = `translate(${fern_formatNumber(2 * cx)} 0) scale(-1 1)`;
-  } else if (action === "flip-v") {
-    transformStr = `translate(0 ${fern_formatNumber(2 * cy)}) scale(1 -1)`;
-  } else if (action === "rotate-cw") {
+  if (action === "rotate-cw") {
     transformStr = `rotate(90 ${cxF} ${cyF})`;
   } else if (action === "rotate-ccw") {
     transformStr = `rotate(-90 ${cxF} ${cyF})`;
@@ -2745,6 +2837,7 @@ function fern_renderInspector() {
     <div class="inspector-color-row">
       <div class="color-picker-group">
         <span class="subgroup-title">Fill</span>
+        ${fern_componentColorControl(fernSelectedElement, "fill")}
         <div class="color-input-wrapper">
           ${isGradient ? `
             <div class="color-swatches-paired">
@@ -2783,6 +2876,7 @@ function fern_renderInspector() {
 
       <div class="color-picker-group">
         <span class="subgroup-title">Stroke</span>
+        ${fern_componentColorControl(fernSelectedElement, "stroke")}
         <div class="color-input-wrapper">
           <button class="color-input-swatch" type="button" data-action="edit-toolbar-color" data-color-role="stroke" data-color-source="selection" style="background: ${strokeHex}" aria-label="Edit Stroke color" title="Stroke Color" ${strokeIsNone ? 'disabled' : ''}></button>
           <label class="none-check-label">
@@ -2834,6 +2928,55 @@ function fern_renderInspector() {
 
     ${geomFields ? `<div class="field-label" style="margin-top: 0.8rem;">Geometry</div><div class="inspector-grid">${geomFields}</div>` : ''}
   `;
+}
+
+function fern_componentColorRoles() {
+  const roles = new Map();
+  if (!fernActiveSvg) return roles;
+  try {
+    for (const [role, color] of Object.entries(JSON.parse(fernActiveSvg.getAttribute("data-component-colors") || "{}"))) {
+      if (/^[a-z][a-z0-9-]*$/.test(role) && typeof color === "string") roles.set(role, color);
+    }
+  } catch (_error) { /* Imported SVGs may have no role catalogue. */ }
+  for (const element of [fernActiveSvg, ...fernActiveSvg.querySelectorAll("*")]) {
+    for (const attribute of element.attributes) {
+      for (const match of attribute.value.matchAll(/var\(--component-([a-z0-9-]+),\s*([^)]+)\)/gi)) {
+        if (!roles.has(match[1])) roles.set(match[1], match[2].trim());
+      }
+    }
+  }
+  return roles;
+}
+
+function fern_componentColorControl(element, property) {
+  const roles = fern_componentColorRoles();
+  if (!roles.size) return "";
+  const value = fern_getPresentationAttr(element, property);
+  const current = value.match(/var\(--component-([a-z0-9-]+),/i)?.[1] || "";
+  const options = [...roles.keys()].map(role => `<option value="${fern_escapeHtml(role)}"${role === current ? " selected" : ""}>${fern_escapeHtml(role.replaceAll("-", " ").replace(/^./, letter => letter.toUpperCase()))}</option>`).join("");
+  return `<div class="inspector-grid"><label style="grid-column: 1 / -1;"><span>${property === "fill" ? "Fill" : "Stroke"} role</span><select class="select-pill" data-component-color="${property}"><option value="">Fixed colour</option>${options}</select></label></div>`;
+}
+
+function fern_updateComponentColor(event) {
+  const input = event.target.closest("[data-component-color]");
+  if (!input) return;
+  const property = input.dataset.componentColor;
+  const role = input.value;
+  const roles = fern_componentColorRoles();
+  const targets = fern_getSelectedElements();
+  if (!targets.length || (role && !roles.has(role))) return;
+  fern_beginHistory();
+  for (const element of targets) {
+    const previous = fern_getPresentationAttr(element, property);
+    const fallback = previous.match(/var\(--component-[a-z0-9-]+,\s*([^)]+)\)/i)?.[1] || previous;
+    fern_setEditableAttr(element, property, role ? `var(--component-${role}, ${roles.get(role)})` : fallback);
+    const regions = (element.getAttribute("data-color-regions") || "").split(";").filter(region => region && !region.trim().startsWith(`${property}:`));
+    if (role) regions.push(`${property}:${role}`);
+    if (regions.length) element.setAttribute("data-color-regions", regions.join(";"));
+    else element.removeAttribute("data-color-regions");
+  }
+  fern_commitHistory();
+  fern_renderInspector();
 }
 
 function fern_componentInspectorFields(element, target) {
@@ -3607,7 +3750,54 @@ function fern_renderPointHandles() {
     }
   });
 
+  if (fernPointDragState?.snapTarget) {
+    const point = fern_getCanvasPoint(fernPointDragState.snapTarget);
+    const marker = document.createElementNS(FERN_SVG_NS, "circle");
+    marker.setAttribute("cx", fern_formatNumber(point.x));
+    marker.setAttribute("cy", fern_formatNumber(point.y));
+    marker.setAttribute("r", fern_formatNumber(handleSize));
+    marker.setAttribute("class", "svg-point-handle svg-point-anchor is-active-point");
+    marker.setAttribute("pointer-events", "none");
+    marker.setAttribute("data-node-snap-target", "");
+    group.append(marker);
+  }
   fernActiveSvg.append(group);
+}
+
+function fern_isSnapNode(ref) {
+  return fern_refHasPosition(ref) || ["points-pair", "attr-pair", "rect-corner"].includes(ref?.type);
+}
+
+function fern_nodeSnapTargets(element, pointIndex) {
+  const targets = [];
+  for (const candidate of fern_editableElements()) {
+    if (candidate.closest("defs, clipPath, mask, [data-editor-backdrop], [data-component-guides], [data-draw-reference]")) continue;
+    if (!candidate.getClientRects().length || getComputedStyle(candidate).visibility !== "visible") continue;
+    const matrix = candidate.getScreenCTM();
+    if (!matrix) continue;
+    fern_getPointRefs(candidate).forEach((ref, index) => {
+      if (!fern_isSnapNode(ref) || (candidate === element && index === pointIndex)) return;
+      const point = new DOMPoint(ref.x, ref.y).matrixTransform(matrix);
+      targets.push({ clientX: point.x, clientY: point.y });
+    });
+  }
+  return targets;
+}
+
+function fern_snapDraggedNode(element, x, y, enabled) {
+  const drag = fernPointDragState;
+  drag.snapTarget = null;
+  if (!enabled || !fern_isSnapNode(drag.ref)) return { x, y };
+  const matrix = element.getScreenCTM();
+  if (!matrix) return { x, y };
+  const pointer = new DOMPoint(x, y).matrixTransform(matrix);
+  // Use the same eight-screen-pixel tolerance as node/segment hit detection.
+  let distance = 8;
+  for (const target of drag.snapTargets) {
+    const candidateDistance = Math.hypot(target.clientX - pointer.x, target.clientY - pointer.y);
+    if (candidateDistance <= distance) { distance = candidateDistance; drag.snapTarget = target; }
+  }
+  return drag.snapTarget ? fern_getElementPoint(drag.snapTarget, element) : { x, y };
 }
 
 function fern_setPathPair(ref, x, y) {
@@ -4045,29 +4235,45 @@ function fern_addSelectedSegmentNode() {
 
 function fern_selectPathSegment(event) {
   if (fernEditorMode !== "select-node" || event.shiftKey || event.altKey) return false;
-  const path = fern_selectableTarget(event.target, event);
-  if (!path || fern_getTagName(path) !== "path") return false;
-  const point = fern_getElementPoint(event, path);
-  const normalized = fern_normalizedPath(path);
-  const segment = fern_closestPathSegment(normalized, point);
-  const tolerance = fern_screenPixelsToElementUnits(path, 8);
-  if (!segment || segment.distance > tolerance * tolerance || segment.t <= 0.01 || segment.t >= 0.99) return false;
+  // Hit the actual geometry, not selection cycling or filled-shape interiors.
+  const candidates = [...new Set([fernSelectedElement, event.target, ...fern_editableElements()])]
+    .filter(element => element && ["path", "line"].includes(fern_getTagName(element))
+      && !element.closest("defs, [data-editor-handles], [data-editor-grid], [data-editor-backdrop], [data-component-guides], [data-draw-reference]"));
+  let hit = null;
+  for (const path of candidates) {
+    const point = fern_getElementPoint(event, path);
+    const normalized = fern_getTagName(path) === "line"
+      ? fern_normalizedPath({getAttribute: () => `M ${fern_numericAttr(path, "x1")} ${fern_numericAttr(path, "y1")} L ${fern_numericAttr(path, "x2")} ${fern_numericAttr(path, "y2")}`})
+      : fern_normalizedPath(path);
+    const segment = fern_closestPathSegment(normalized, point);
+    const tolerance = fern_screenPixelsToElementUnits(path, 8);
+    if (!segment || segment.distance > tolerance * tolerance || segment.t <= 0.01 || segment.t >= 0.99) continue;
+    const distance = segment.distance / (tolerance * tolerance);
+    if (!hit || distance < hit.distance) hit = {path, point, normalized, segment, distance};
+    if (path === fernSelectedElement) break;
+  }
+  if (!hit) return false;
+  const {path, point, normalized, segment} = hit;
   const modes = fern_getPointRefs(path).filter(fern_refHasPosition).map(ref => ref.pointMode);
   fern_selectElements([path]);
   fern_selectAnchorOrdinals([segment.firstOrdinal, segment.endOrdinal]);
   fernSelectedPointIndex = null;
   fern_renderPointHandles();
-  if (["C", "Q"].includes(segment.tokens[0].value.toUpperCase())) {
-    fernDragState = { segment, element: path, d: normalized.d, modes,
-      startPoint: point, clientX: event.clientX, clientY: event.clientY, moved: false };
-    fernActiveSvg.setPointerCapture(event.pointerId);
-  }
+  fernDragState = { segment, element: path, d: normalized.d, modes,
+    startPoint: point, clientX: event.clientX, clientY: event.clientY, moved: false };
+  fernActiveSvg.setPointerCapture(event.pointerId);
   event.preventDefault();
   return true;
 }
 
 function fern_bendSegment(segment, dx, dy) {
-  const values = segment.tokens.map(token => ({...token}));
+  const command = segment.tokens[0].value.toUpperCase();
+  const values = ["L", "H", "V", "Z"].includes(command)
+    ? fern_pathCommand("C",
+      segment.start.x + (segment.end.x-segment.start.x)/3, segment.start.y + (segment.end.y-segment.start.y)/3,
+      segment.start.x + (segment.end.x-segment.start.x)*2/3, segment.start.y + (segment.end.y-segment.start.y)*2/3,
+      segment.end.x, segment.end.y)
+    : segment.tokens.map(token => ({...token}));
   const t = Math.max(0.05, Math.min(0.95, segment.t));
   const weights = values[0].value.toUpperCase() === "C" ? [3*(1-t)*(1-t)*t, 3*(1-t)*t*t] : [2*(1-t)*t];
   const denominator = weights.reduce((sum, weight) => sum + weight*weight, 0);
@@ -4083,12 +4289,19 @@ function fern_dragPathSegment(event) {
   if (!drag.moved) {
     if (Math.hypot(event.clientX-drag.clientX, event.clientY-drag.clientY) < 3) return;
     fern_beginHistory();
+    if (fern_getTagName(drag.element) === "line") {
+      drag.element = fern_lineToPath(drag.element);
+      fern_selectElements([drag.element]);
+    }
     drag.moved = true;
   }
   const point = fern_getElementPoint(event, drag.element);
   const tokens = fern_pathTokens(drag.d);
-  tokens.splice(drag.segment.end.segmentStart, drag.segment.end.segmentEnd-drag.segment.end.segmentStart,
-    ...fern_bendSegment(drag.segment, point.x-drag.startPoint.x, point.y-drag.startPoint.y));
+  const replacement = fern_bendSegment(drag.segment, point.x-drag.startPoint.x, point.y-drag.startPoint.y);
+  const start = drag.segment.closing ? drag.segment.closingTokenIndex : drag.segment.end.segmentStart;
+  const count = drag.segment.closing ? 1 : drag.segment.end.segmentEnd - start;
+  if (drag.segment.closing) replacement.push(...fern_pathCommand("Z"));
+  tokens.splice(start, count, ...replacement);
   fern_writePath(drag.element, fern_serializePathTokens(tokens), drag.modes);
   // Keep neighboring smooth handles aligned without changing their lengths.
   const refs = fern_getPointRefs(drag.element);
@@ -4571,7 +4784,7 @@ function fern_nudgeSelection(dx, dy) {
 
     if (selectedIndices.length > 0 && refs.length > 0) {
       fern_beginHistory();
-      const local = fern_canvasDeltaToElement(fernSelectedElement, dx, dy);
+      const local = fern_canvasDeltaToElement(fernSelectedElement, dx, dy, true);
       const movedRefs = new Set();
       for (const index of selectedIndices) {
         const ref = refs[index];
@@ -4582,7 +4795,7 @@ function fern_nudgeSelection(dx, dy) {
         const newX = (ref.x || 0) + local.dx;
         const newY = (ref.y || 0) + local.dy;
         fern_applyPointRef(fernSelectedElement, ref, newX, newY);
-        if (ref.role === "anchor" && Array.isArray(ref.controls)) {
+        if (fern_refHasPosition(ref) && Array.isArray(ref.controls)) {
           for (const control of ref.controls) {
             if (!movedRefs.has(control)) {
               movedRefs.add(control);
@@ -5289,6 +5502,8 @@ function fern_handlePointerDown(event) {
       element: targetElem,
       ref,
       refs,
+      snapTargets: fern_isSnapNode(ref) ? fern_nodeSnapTargets(targetElem, pointIdx) : [],
+      snapTarget: null,
       constrainEllipse: event.shiftKey && isEllipseRadius,
       mirrorControls: event.shiftKey && ref.role === "control",
       alignControls: ref.role === "control" && ref.connectTo?.pointMode === "smooth",
@@ -5343,7 +5558,7 @@ function fern_handlePointerDown(event) {
   }
 
   let elementsToDrag = fern_getSelectedElements();
-  if (elementsToDrag.length > 0 && hitExistingSelection) {
+  if (fernEditorMode !== "select-node" && elementsToDrag.length > 0 && hitExistingSelection) {
     if (event.altKey) {
       const clones = [];
       for (const el of elementsToDrag) {
@@ -5492,8 +5707,9 @@ function fern_handlePointerMove(event) {
     const dragElem = fernPointDragState.element || fernSelectedElement;
     if (!dragElem) return;
     const point = fern_getElementPoint(event, dragElem);
-    const x = fern_snap(fernPointDragState.startX + point.x - fernPointDragState.startPointerX);
-    const y = fern_snap(fernPointDragState.startY + point.y - fernPointDragState.startPointerY);
+    const proposedX = fern_snap(fernPointDragState.startX + point.x - fernPointDragState.startPointerX);
+    const proposedY = fern_snap(fernPointDragState.startY + point.y - fernPointDragState.startPointerY);
+    const { x, y } = fern_snapDraggedNode(dragElem, proposedX, proposedY, event.altKey);
     fernPointDragState.moved = fernPointDragState.moved || x !== fernPointDragState.startX || y !== fernPointDragState.startY;
     if (fernPointDragState.constrainEllipse) {
       const radius = fernPointDragState.ref.type === "ellipse-rx"
@@ -6698,6 +6914,7 @@ async function fern_setupEditor() {
       fern_updateColorAttr(event);
     });
     inspector.addEventListener("change", (event) => {
+      fern_updateComponentColor(event);
       fern_updateComponentAttr(event);
       fern_updateSelectedAttr(event);
       fern_updateColorAttr(event);
@@ -7235,7 +7452,7 @@ async function fern_setupEditor() {
       fern_saveColorSet(true);
     } else if (actionButton && actionButton.dataset.action === "show-shortcuts") {
       fern_closeAllMenus();
-      fern_setEditorStatus("Shortcuts: H: Hand, V: Marquee, A: Shape / Nodes, G: Group, P: Draw · Space pans · Ctrl/Cmd+Z undo · Ctrl/Cmd+X/C/V/D.");
+      fern_setEditorStatus("Shortcuts: H: Hand, V: Marquee, A: Shape / Nodes, G: Group, P: Draw · Space pans · Alt/Option-drag snaps nodes · Ctrl/Cmd+Z undo · Ctrl/Cmd+X/C/V/D.");
     } else if (actionButton && actionButton.dataset.action === "show-about") {
       fern_closeAllMenus();
       fern_setEditorStatus("Phrond Draw - edit SVG files locally.");

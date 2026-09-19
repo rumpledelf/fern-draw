@@ -61,3 +61,7 @@ node tests/browser/drawing-workflow.cjs
 The browser check uses `http://127.0.0.1:8000/tools/draw/` by default. Set
 `DRAW_TEST_URL` to use another local URL. It creates a separate anonymous browser
 session and does not use your open drawing tab.
+
+## Trace handoff
+
+Trace opens an SVG in a new Draw tab using a one-time session transfer. The SVG passes through Draw’s normal sanitizer and path importer. It has no inherited account asset, project or image backdrop, and does not update another drawing’s local autosave or server recovery record. Save the imported drawing explicitly to your computer or account; leaving with unsaved changes prompts. Expired transfers tell the user to reopen the result from Trace rather than falling back to an unrelated draft.

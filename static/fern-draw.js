@@ -1,12 +1,11 @@
 const fernEditor = document.querySelector("[data-svg-editor]");
 
+// Trace opens an isolated, unsaved document; never touch another tab's draft or account asset.
+const fernTraceTransferToken = new URLSearchParams(window.location.search).get("trace");
 const FERN_SVG_NS = "http://www.w3.org/2000/svg";
 const FERN_EMPTY_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"></svg>';
 const FERN_MAX_LOCAL_FILE_BYTES = 10 * 1024 * 1024;
-const FERN_DEFAULT_COLORS = [
-  "#000000", "#FFFFFF", "#8FC7E8", "#416A9B", "#78A568", "#9A704F",
-  "#8B9291", "#D58FA3", "#C9655A", "#D98B4A", "#9278AD", "#E0BD58",
-];
+const FERN_DEFAULT_COLORS = [...window.FernColorSets.defaults];
 const FERN_AUTOSAVE_KEY = "fern_draw_autosave_v1";
 const FERN_RECOVERY_ENDPOINT = "/tools/draw/api/recovery/current-drawing";
 const FERN_PALETTE_STORAGE_KEY = "fern_draw_palette_v1";
@@ -38,6 +37,7 @@ function fern_setSessionDraftKey(key) {
 }
 
 function fern_autoSaveLocal() {
+  if (fernTraceTransferToken) return;
   if (!fernActiveSvg) {
     return;
   }
@@ -1773,57 +1773,11 @@ function fern_setToolbarColor(role, value, updateDefaults = true) {
   fern_setEditorStatus(`${role === "fill" ? "Fill" : "Stroke"} color updated.`);
 }
 
-function fern_normalizePaletteColor(value) {
-  const color = String(value || "").trim();
-  if (/^#[0-9a-fA-F]{6}$/.test(color)) {
-    return color.toUpperCase();
-  }
-  if (/^#[0-9a-fA-F]{3}$/.test(color)) {
-    return `#${color[1]}${color[1]}${color[2]}${color[2]}${color[3]}${color[3]}`.toUpperCase();
-  }
-  return "";
-}
+function fern_normalizePaletteColor(value) { return window.FernColorSets.normalizeHex(value); }
 
-function fern_hexToHsv(value) {
-  const color = fern_normalizePaletteColor(value) || "#000000";
-  const red = Number.parseInt(color.slice(1, 3), 16) / 255;
-  const green = Number.parseInt(color.slice(3, 5), 16) / 255;
-  const blue = Number.parseInt(color.slice(5, 7), 16) / 255;
-  const max = Math.max(red, green, blue);
-  const min = Math.min(red, green, blue);
-  const delta = max - min;
-  let hue = 0;
-  if (delta) {
-    if (max === red) {
-      hue = 60 * (((green - blue) / delta) % 6);
-    } else if (max === green) {
-      hue = 60 * ((blue - red) / delta + 2);
-    } else {
-      hue = 60 * ((red - green) / delta + 4);
-    }
-  }
-  if (hue < 0) {
-    hue += 360;
-  }
-  return { h: hue, s: max ? delta / max : 0, v: max };
-}
+function fern_hexToHsv(value) { return window.FernColorSets.toHsv(value); }
 
-function fern_hsvToHex({ h, s, v }) {
-  const chroma = v * s;
-  const segment = (h / 60) % 6;
-  const x = chroma * (1 - Math.abs((segment % 2) - 1));
-  const match = v - chroma;
-  let red = 0;
-  let green = 0;
-  let blue = 0;
-  if (segment < 1) [red, green, blue] = [chroma, x, 0];
-  else if (segment < 2) [red, green, blue] = [x, chroma, 0];
-  else if (segment < 3) [red, green, blue] = [0, chroma, x];
-  else if (segment < 4) [red, green, blue] = [0, x, chroma];
-  else if (segment < 5) [red, green, blue] = [x, 0, chroma];
-  else [red, green, blue] = [chroma, 0, x];
-  return `#${[red, green, blue].map((channel) => Math.round((channel + match) * 255).toString(16).padStart(2, "0")).join("")}`.toUpperCase();
-}
+function fern_hsvToHex(value) { return window.FernColorSets.fromHsv(value); }
 
 function fern_renderInlineColorPicker(dialog, color, surfaceSelector, thumbSelector, hueSelector) {
   const surface = dialog.querySelector(surfaceSelector);
@@ -2593,10 +2547,10 @@ function fern_renderInspector() {
         <button class="chip-btn chip-btn-icon" type="button" data-group-action="group" title="Group into &lt;g&gt;" aria-label="Group into &lt;g&gt;">
           <span class="material-icons" aria-hidden="true">layers</span>
         </button>
-        <button class="chip-btn" type="button" data-group-action="break-apart" title="Split each subpath into its own editable path. Inner contours become separate filled shapes.">Break apart</button>
-      <button class="chip-btn chip-btn-icon" type="button" data-group-action="ungroup" title="Ungroup &lt;g&gt;" aria-label="Ungroup &lt;g&gt;">
+        <button class="chip-btn chip-btn-icon" type="button" data-group-action="ungroup" title="Ungroup &lt;g&gt;" aria-label="Ungroup &lt;g&gt;">
           <span class="material-icons" aria-hidden="true">layers_clear</span>
         </button>
+        <button class="chip-btn chip-btn-icon" type="button" data-group-action="break-apart" title="Break apart path: split each subpath into its own editable path. Inner contours become separate filled shapes." aria-label="Break apart path"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="9" width="6" height="6"/><path d="M10 19 14 5"/><rect x="16" y="9" width="6" height="6"/></svg></button>
       </div>
       <div class="field-label" style="margin-top: 0.8rem;">Fill &amp; Stroke</div>
       ${fern_styleClipboardControls()}
@@ -2824,10 +2778,10 @@ function fern_renderInspector() {
       <button class="chip-btn chip-btn-icon" type="button" data-group-action="group" title="Group into &lt;g&gt;" aria-label="Group into &lt;g&gt;">
         <span class="material-icons" aria-hidden="true">layers</span>
       </button>
-      <button class="chip-btn" type="button" data-group-action="break-apart" title="Split each subpath into its own editable path. Inner contours become separate filled shapes.">Break apart</button>
       <button class="chip-btn chip-btn-icon" type="button" data-group-action="ungroup" title="Ungroup &lt;g&gt;" aria-label="Ungroup &lt;g&gt;">
         <span class="material-icons" aria-hidden="true">layers_clear</span>
       </button>
+      <button class="chip-btn chip-btn-icon" type="button" data-group-action="break-apart" title="Break apart path: split each subpath into its own editable path. Inner contours become separate filled shapes." aria-label="Break apart path"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="9" width="6" height="6"/><path d="M10 19 14 5"/><rect x="16" y="9" width="6" height="6"/></svg></button>
     </div>
 
 
@@ -3859,7 +3813,7 @@ function fern_selectAnchorOrdinals(ordinals) {
   fernSelectedNodeIndices = new Set(ordinals.map((ordinal) => refs.indexOf(anchors[ordinal])).filter((index) => index >= 0));
 }
 
-function fern_planNodeConnection(d, selectedOrdinals, add) {
+function fern_pathTopology(d) {
   const tokens = fern_pathTokens(fern_absolutizePath(d));
   const subpaths = [];
   let subpath = null;
@@ -3902,6 +3856,13 @@ function fern_planNodeConnection(d, selectedOrdinals, add) {
   }
   let ordinal = 0;
   for (const part of subpaths) for (const node of part.nodes) node.ordinal = ordinal++;
+  return { subpaths, nodeCount: ordinal };
+}
+
+function fern_planNodeConnection(d, selectedOrdinals, add) {
+  const topology = fern_pathTopology(d);
+  if (topology.error) return topology;
+  const { subpaths, nodeCount: ordinal } = topology;
   const selected = subpaths.flatMap(part => part.nodes).filter(node => selectedOrdinals.includes(node.ordinal));
   if (selected.length !== 2) return { error: "Select exactly two nodes." };
   const [first, second] = selected;
@@ -4011,37 +3972,16 @@ function fern_setSelectedSegmentMode(mode) {
     return;
   }
 
-  const [firstOrdinal, secondOrdinal] = selectedOrdinals.sort((a, b) => a - b);
-  const isClosingPair = firstOrdinal === 0 && secondOrdinal === anchors.length - 1;
-  if (secondOrdinal !== firstOrdinal + 1 && !isClosingPair) {
+  const normalized = fern_normalizedPath(fernSelectedElement);
+  const segment = fern_pathSegments(fern_getPointRefs(normalized)).find(segment =>
+    selectedOrdinals.includes(segment.firstOrdinal) && selectedOrdinals.includes(segment.endOrdinal));
+  if (!segment) {
     fern_setEditorStatus("The selected nodes need one segment directly between them.");
     return;
   }
-
-  const start = isClosingPair ? anchors[secondOrdinal] : anchors[firstOrdinal];
-  const end = isClosingPair ? anchors[firstOrdinal] : anchors[secondOrdinal];
-  let segmentStart = end.segmentStart;
-  let segmentEnd = end.segmentEnd;
-
-  if (isClosingPair) {
-    // A closed curve can end at the starting node before its Z command. The
-    // coincident endpoint is hidden, so use its token range for this edge.
-    const linkedEndpoint = (end.linkedAnchors || []).find((ref) => (
-      ref.role === "end" && Number.isInteger(ref.segmentStart) && Number.isInteger(ref.segmentEnd)
-    ));
-    if (linkedEndpoint) {
-      segmentStart = linkedEndpoint.segmentStart;
-      segmentEnd = linkedEndpoint.segmentEnd;
-    } else if (start.closingTo === end && Number.isInteger(start.closingTokenIndex)) {
-      segmentStart = start.closingTokenIndex;
-      segmentEnd = start.closingTokenIndex + 1;
-    }
-  }
-
-  if (!Number.isInteger(segmentStart) || !Number.isInteger(segmentEnd)) {
-    fern_setEditorStatus("That segment cannot be changed here.");
-    return;
-  }
+  const { start, end } = segment;
+  const segmentStart = segment.closing ? segment.closingTokenIndex : end.segmentStart;
+  const segmentEnd = segment.closing ? segmentStart + 1 : end.segmentEnd;
 
   const replacement = mode === "straight"
     ? fern_pathCommand("L", end.x, end.y)
@@ -4055,13 +3995,14 @@ function fern_setSelectedSegmentMode(mode) {
       end.y,
     );
 
-  const tokens = fern_pathTokens(fernSelectedElement.getAttribute("d") || "");
+  if (segment.closing) replacement.push(...fern_pathCommand("Z"));
+  const tokens = fern_pathTokens(normalized.d);
   tokens.splice(segmentStart, segmentEnd - segmentStart, ...replacement);
   const overrides = fern_getNodeModeOverrides(fernSelectedElement);
   const nodeModes = anchors.map((ref) => overrides[fern_nodeModeKey(ref)]);
   fern_writePath(fernSelectedElement, fern_serializePathTokens(tokens), nodeModes);
   fernSelectedPointIndex = null;
-  fern_selectAnchorOrdinals([firstOrdinal, secondOrdinal]);
+  fern_selectAnchorOrdinals(selectedOrdinals);
   fern_setEditorStatus(mode === "straight" ? "Segment made straight." : "Segment made curved. Drag its orange handles.");
   fern_renderPointHandles();
 }
@@ -4353,22 +4294,46 @@ function fern_mergeSelectedNodes() {
 }
 
 function fern_deleteSelectedNodes() {
-  if (!fernSelectedElement || fern_getTagName(fernSelectedElement) !== "path") {
+  if (!fernSelectedElement || fern_getTagName(fernSelectedElement) !== "path") return;
+  const anchors = fern_getPointRefs(fernSelectedElement).filter(fern_refHasPosition);
+  const selectedKeys = new Set(fern_selectedAnchorRefs().map(fern_nodeModeKey));
+  const removed = new Set(anchors.map((ref, index) => selectedKeys.has(fern_nodeModeKey(ref)) ? index : -1));
+  removed.delete(-1);
+  if (!removed.size) return;
+
+  const topology = fern_pathTopology(fernSelectedElement.getAttribute("d") || "");
+  if (topology.error) {
+    fern_setEditorStatus(topology.error);
     return;
   }
-
-  const refs = fern_selectedAnchorRefs().filter((ref) => ref.role !== "M" && Number.isInteger(ref.segmentStart) && Number.isInteger(ref.segmentEnd));
-  if (refs.length === 0) {
-    return;
+  const output = [];
+  const modes = [];
+  for (const part of topology.subpaths) {
+    const remaining = part.nodes.map((node, index) => ({ node, index }))
+      .filter(({ node }) => !removed.has(node.ordinal));
+    if (!remaining.length) continue;
+    const first = remaining[0].node;
+    output.push(...fern_pathCommand("M", first.x, first.y));
+    for (const { node, index } of remaining.slice(1)) {
+      const edge = part.edges[index - 1];
+      output.push(...fern_pathCommand(edge.command, ...edge.values));
+    }
+    if (part.closed) {
+      // Preserve the existing closing curve only when its endpoint survives.
+      const closing = part.edges[part.edges.length - 1];
+      if (remaining[0].index === 0 && closing && closing.command !== "L") {
+        output.push(...fern_pathCommand(closing.command, ...closing.values));
+      }
+      output.push(...fern_pathCommand("Z"));
+    }
+    modes.push(...remaining.map(({ node }) => anchors[node.ordinal].pointMode));
   }
-
-  const tokens = fern_pathTokens(fernSelectedElement.getAttribute("d") || "");
-  const removals = refs.map((ref) => ({ start: ref.segmentStart, end: ref.segmentEnd })).sort((a, b) => b.start - a.start);
-  for (const removal of removals) {
-    tokens.splice(removal.start, removal.end - removal.start);
+  if (output.length) {
+    fern_writePath(fernSelectedElement, fern_serializePathTokens(output), modes);
+  } else {
+    fernSelectedElement.remove();
+    fern_selectElements([]);
   }
-
-  fernSelectedElement.setAttribute("d", fern_serializePathTokens(tokens));
   fernSelectedNodeIndices = new Set();
   fernSelectedPointIndex = null;
   fern_renderPointHandles();
@@ -6082,6 +6047,27 @@ function fern_loadLocalSvg(fernContent, fernName, fernHandle = null) {
   fern_setEditorStatus(fernCurrentFileName);
 }
 
+function fern_loadTraceTransfer() {
+  if (!/^[a-f0-9-]{36}$/i.test(fernTraceTransferToken || "")) throw new Error("Invalid Trace transfer. Open the result from Trace again.");
+  const key = `phrond-trace-transfer:${fernTraceTransferToken}`;
+  const payload = JSON.parse(sessionStorage.getItem(key) || "null");
+  sessionStorage.removeItem(key);
+  if (!payload || typeof payload.content !== "string" || payload.content.length > FERN_MAX_LOCAL_FILE_BYTES || !Number.isFinite(payload.timestamp) || payload.timestamp > Date.now() + 60000 || Date.now() - payload.timestamp > 10 * 60 * 1000) {
+    throw new Error("This Trace transfer has expired. Open the result from Trace again.");
+  }
+  fernAccountAssetId = null;
+  fernAccountProjectId = null;
+  fernTraceBackdrop = { ...fernTraceBackdrop, url: "", visible: false };
+  fern_setSessionDraftKey(`trace-${fernTraceTransferToken}`);
+  fern_loadLocalSvg(payload.content, payload.fileName || "trace.svg");
+  // Imported work is unsaved. Account users stay in the tab until explicitly saved.
+  fernOriginalSvgContent = "";
+  fern_setEditorStatus("Opened from Trace. Edit the paths, then save to your computer or account.");
+  window.addEventListener("beforeunload", event => {
+    if (fernActiveSvg && fern_cleanForSave() !== fernOriginalSvgContent) { event.preventDefault(); event.returnValue = ""; }
+  });
+}
+
 async function fern_loadAccountAssetFromUrl() {
   const assetId = new URLSearchParams(window.location.search).get("asset");
   if (!assetId) return false;
@@ -6669,6 +6655,7 @@ function fern_rememberAccountAsset(assetId) {
 }
 
 function fern_restoreAccountLinkage() {
+  if (fernTraceTransferToken) return;
   fernAccountAssetId = fernAccountAssetId || localStorage.getItem(FERN_ACCOUNT_ASSET_KEY) || null;
   fernAccountProjectId = fernAccountProjectId || localStorage.getItem(FERN_ACCOUNT_PROJECT_KEY) || null;
 }
@@ -7496,6 +7483,12 @@ async function fern_setupEditor() {
   window.addEventListener("beforeunload", fern_autoSaveLocal);
 
   const parameters = new URLSearchParams(window.location.search);
+  if (parameters.has("trace")) {
+    try { fern_loadTraceTransfer(); }
+    catch (error) { fern_setEditorStatus(error.message || "Could not open the Trace result."); }
+    fern_updateCanvasStageSize();
+    return;
+  }
   const requestedAssetId = parameters.get("asset");
   const loadedSource = parameters.get("source") ? await fern_loadSourceFromUrl().catch((error) => {
     fern_setEditorStatus(error.message || "Could not open the SVG source.");

@@ -2,9 +2,6 @@
 
 :root {
   /* === Exact fern-landing Base Colors === */
-  --phrond-sundial-gold: #D8CAAC;
-  --phrond-tile-title: #D8CAAC;
-  --phrond-text-brand: #D8CAAC;
 
   /* === Fern Draw UI Tokens (Mapped directly to fern-landing) === */
   --fern-bg: var(--phrond-bg);
